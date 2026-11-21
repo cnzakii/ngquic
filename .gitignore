@@ -1,0 +1,55 @@
+# Python bytecode and native extensions
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+*.pyd
+
+# Python environments and local configuration
+.venv/
+.uv-cache/
+.env
+.env.*
+!.env.example
+.pypirc
+
+# Python and CMake build outputs
+build/
+# Generated C, linked beside the sources for coverage
+/src/**/*.c
+dist/
+
+*.egg-info/
+*.whl
+CMakeUserPresets.json
+
+# Tests, coverage, and static analysis
+.bench-tmp/
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.lcov
+.ruff_cache/
+
+# IDE files
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Operating system metadata
+.DS_Store
+._*
+Thumbs.db
+[Dd]esktop.ini
+.directory
+
+# Local notes
+*.local.md

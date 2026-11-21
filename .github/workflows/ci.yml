@@ -1,0 +1,322 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # Monthly, to catch new runner images, Python releases and upstream changes.
+  schedule:
+    - cron: "0 6 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUFF_OUTPUT_FORMAT: github
+
+jobs:
+  lint:
+    name: Lint and static analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked
+      - run: uv run --locked pre-commit run --all-files
+
+  test:
+    # Without a version, uv uses .python-version.
+    name: Python ${{ matrix.python-version || 'dev' }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15", "3.15t"]
+        include:
+          - os: ubuntu-24.04-arm
+          - os: macos-26-intel
+          - os: macos-26
+          - os: windows-2025
+          - os: windows-11-arm
+    env:
+      # AWS-LC's Arm64 assembly on Windows builds only with the clang-cl toolset.
+      CMAKE_ARGS: ${{ matrix.os == 'windows-11-arm' && '-T ClangCL' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python-version }}
+      # AWS-LC assembles x86_64 code with NASM, which it finds only on PATH.
+      - name: Install NASM
+        if: runner.os == 'Windows' && runner.arch == 'X64'
+        run: |
+          choco install -y --no-progress nasm
+          Add-Content $env:GITHUB_PATH "C:\Program Files\NASM"
+      # aioquic's dependencies have no free-threaded or Windows Arm64 wheels;
+      # without them the interop tests skip.
+      - run: >-
+          uv sync --locked --no-dev --group test
+          ${{ !endsWith(matrix.python-version, 't') && matrix.os != 'windows-11-arm'
+          && '--group interop' || '' }}
+      - run: uv run --no-sync pytest
+
+  sanitizers:
+    name: AddressSanitizer and UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      # AWS-LC's libssl is C++, so both languages are instrumented.
+      CFLAGS: >-
+        -fsanitize=address,undefined -fno-sanitize-recover=undefined
+        -fno-omit-frame-pointer -g -O1
+      CXXFLAGS: >-
+        -fsanitize=address,undefined -fno-sanitize-recover=undefined
+        -fno-omit-frame-pointer -g -O1
+      LDFLAGS: -fsanitize=address,undefined
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      # uv-managed interpreters leave out _testcapi, which the allocation
+      # failure tests need; setup-python's builds include it.
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Build the instrumented extensions
+        run: >-
+          uv --no-cache sync --locked --no-dev --group test --group interop
+          --config-setting install.strip=false
+        env:
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+      - run: .venv/bin/python -c "import _testcapi"
+      - name: Run tests under the sanitizers
+        env:
+          # CPython leaks at exit by design; pymalloc would hide object overruns.
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1
+          PYTHONMALLOC: malloc
+        # sys capture leaves fd 2 alone, so a report survives the abort.
+        run: |
+          LD_PRELOAD="$(gcc -print-file-name=libasan.so) $(gcc -print-file-name=libubsan.so)" \
+            .venv/bin/python -m pytest --capture=sys
+
+  h3spec:
+    name: h3spec conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked --no-dev --group test
+      - name: Install h3spec 0.1.15
+        run: |
+          curl --fail --location --silent --show-error \
+            --output "$RUNNER_TEMP/h3spec" \
+            https://github.com/kazu-yamamoto/h3spec/releases/download/v0.1.15/h3spec-linux-x86_64
+          echo "c3c5f497153f4ba81f82023791ba7f9a4bc46d4141211e614196f141c5996830  $RUNNER_TEMP/h3spec" \
+            | sha256sum --check
+          chmod +x "$RUNNER_TEMP/h3spec"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: uv run --no-sync pytest -m h3spec tests/interop/test_h3spec.py
+
+  # Pull requests only: the weekly interop workflow covers main.
+  interop-image:
+    name: Interop endpoint image (${{ matrix.image }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      matrix:
+        include:
+          - image: pr
+            ref: ""
+          - image: base
+            ref: ${{ github.event.pull_request.base.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ matrix.ref }}
+          submodules: recursive
+      # A base from before the endpoint existed has no image to compare with.
+      - id: build
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          [ -f tests/interop/runner/Dockerfile ] || exit 0
+          docker build -f tests/interop/runner/Dockerfile -t "ngquic-qns:$IMAGE" .
+          docker save "ngquic-qns:$IMAGE" | gzip > "$RUNNER_TEMP/$IMAGE.tar.gz"
+          echo built=true >> "$GITHUB_OUTPUT"
+      - if: steps.build.outputs.built
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: interop-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/${{ matrix.image }}.tar.gz
+          retention-days: 1
+
+  # The QUIC interop runner (https://interop.seemann.io) against mature peers,
+  # each in both roles, with the base branch's endpoint run beside this one: a
+  # test fails the job only if it passed on the base and fails here twice, so
+  # a peer's own failures and the simulator's noise never do. Not required: a
+  # peer's latest image can still change between the two runs.
+  interop:
+    name: Interop, ngquic ${{ matrix.role }} with ${{ matrix.peer }}
+    needs: interop-image
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        peer: [quic-go, quiche, msquic, picoquic]
+        role: [client, server]
+    env:
+      PEER: ${{ matrix.peer }}
+      ROLE: ${{ matrix.role }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: interop-image-*
+          path: ${{ runner.temp }}/images
+          merge-multiple: true
+      - run: for image in "$RUNNER_TEMP"/images/*.tar.gz; do gunzip -c "$image" | docker load; done
+      - uses: $/.github/actions/interop-runner
+      - name: Run the tests, and again those that regressed
+        working-directory: ${{ runner.temp }}/runner
+        run: |
+          ours=ngquic
+          [ -f "$RUNNER_TEMP/images/base.tar.gz" ] && ours=ngquic,ngquic-base
+          # A test that fails against its only peer is not "unsupported".
+          run() {
+            if [ "$ROLE" = client ]; then pair=(--client "$2" --server "$PEER"); else pair=(--client "$PEER" --server "$2"); fi
+            python run.py "${pair[@]}" --no-auto-unsupported "$2,$PEER" --test "$3" \
+              --log-dir "logs/$1" --json "results/$1.json" || true
+          }
+          compare="$GITHUB_WORKSPACE/tests/interop/runner/compare.py"
+          mkdir results
+          run first "$ours" onlyTests
+          regressed=$(python "$compare" results/first.json)
+          if [ -n "$regressed" ]; then
+            echo "::warning::Retrying $regressed once"
+            run retry ngquic "$regressed"
+          fi
+          python "$compare" results/*.json --report
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: interop-logs-${{ matrix.role }}-${{ matrix.peer }}
+          path: ${{ runner.temp }}/runner/logs
+          retention-days: 7
+
+  package:
+    name: Source distribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Build the sdist and a wheel from it
+        run: |
+          uv build --sdist
+          uv build --wheel dist/*.tar.gz
+      # The locked test dependencies: a new release of one is Dependabot's to
+      # bring in, not a reason for this job to fail.
+      - name: Test the wheel outside the source tree
+        run: |
+          uv export --frozen --no-emit-project --no-hashes \
+            --only-group test --only-group interop -o "$RUNNER_TEMP/test-requirements.txt"
+          uv venv "$RUNNER_TEMP/wheel-test"
+          uv pip install --python "$RUNNER_TEMP/wheel-test/bin/python" dist/*.whl \
+            --requirement "$RUNNER_TEMP/test-requirements.txt"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-test/bin/python" -m pytest "$GITHUB_WORKSPACE/tests"
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Codecov uses OIDC, so no long-lived upload token is stored.
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CMAKE_ARGS: -DEMBERLYN_COVERAGE=ON
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      # uv-managed interpreters leave out _testcapi, which the allocation
+      # failure tests need; setup-python's builds include it.
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Build the traced extensions
+        run: uv --no-cache sync --locked --no-dev --group test --group interop --group coverage
+        env:
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+      - run: uv run --no-sync python -c "import _testcapi"
+      # Cython's plugin looks for the generated C beside each .pyx, and beside
+      # each .pxi, since the fragment directories are not packages.
+      - name: Expose the generated C to the Cython coverage plugin
+        run: |
+          build="$PWD/$(dirname "$(find build -name h3__core.c -print -quit)")"
+          for link in _core.c:_core.c _core.c:_quic/_core.c events.c:events.c \
+            h3__core.c:h3/_core.c h3__core.c:h3/_h3/_core.c h3_events.c:h3/events.c
+          do
+            ln -s "$build/${link%%:*}" "src/ngquic/${link#*:}"
+          done
+      - run: uv run --no-sync coverage run -m pytest
+      - run: uv run --no-sync coverage xml
+      # Fails with "No data to report" if the Cython fragments went unmeasured.
+      - run: uv run --no-sync coverage report --fail-under=0 --include="src/*/_quic/*.pxi,src/*/h3/_h3/*.pxi"
+      - run: uv run --no-sync coverage report
+      - uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
+        with:
+          disable_search: true
+          # The report steps above gate this job; a Codecov outage should not.
+          fail_ci_if_error: false
+          files: coverage.xml
+          use_oidc: true
+
+  required:
+    name: Required checks
+    if: always()
+    needs: [lint, test, sanitizers, h3spec, package, coverage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to pass
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            test "$result" = success
+          done

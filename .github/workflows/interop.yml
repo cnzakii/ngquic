@@ -1,0 +1,152 @@
+name: Interop
+
+# main's endpoint against every implementation the QUIC interop runner lists,
+# in each role it plays. Tests that passed in the previous run and fail twice
+# in this one fail the report, and GitHub mails the failure.
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: Endpoint image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: docker build -f tests/interop/runner/Dockerfile -t ngquic-qns:pr .
+      - run: docker save ngquic-qns:pr | gzip > "$RUNNER_TEMP/pr.tar.gz"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: interop-image
+          path: ${{ runner.temp }}/pr.tar.gz
+          retention-days: 1
+
+  pairs:
+    name: Pairs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      pairs: ${{ steps.pairs.outputs.pairs }}
+    steps:
+      - id: runner
+        uses: $/.github/actions/interop-runner
+        with:
+          install: "false"
+      # ngquic against every peer and itself; ngquic-base is CI's alone.
+      - id: pairs
+        env:
+          IMPLEMENTATIONS: ${{ steps.runner.outputs.implementations }}
+        run: |
+          pairs=$(jq -c 'del(.["ngquic-base"]) | to_entries
+            | [(.[] | select(.value.role != "client") | {client: "ngquic", server: .key}),
+               (.[] | select(.value.role != "server") | {client: .key, server: "ngquic"})]
+            | unique' "$IMPLEMENTATIONS")
+          echo "pairs=$pairs" >> "$GITHUB_OUTPUT"
+
+  interop:
+    name: ${{ matrix.client }} client, ${{ matrix.server }} server
+    needs: [image, pairs]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.pairs.outputs.pairs) }}
+    env:
+      CLIENT: ${{ matrix.client }}
+      SERVER: ${{ matrix.server }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: interop-image
+          path: ${{ runner.temp }}
+      - run: gunzip -c "$RUNNER_TEMP/pr.tar.gz" | docker load
+      - uses: $/.github/actions/interop-runner
+      # A test that fails against its only peer is not "unsupported".
+      - id: run
+        name: Run the tests, and again those that failed
+        working-directory: ${{ runner.temp }}/runner
+        run: |
+          run() {
+            python run.py --client "$CLIENT" --server "$SERVER" --no-auto-unsupported "$CLIENT,$SERVER" \
+              --test "$2" --log-dir "logs/$1" --json "results/$CLIENT-$SERVER-$1.json" || true
+          }
+          mkdir results
+          run first onlyTests
+          # null as well: the runner leaves that when its compliance check fails.
+          failed=$(jq -r '[.results[][] | select(.result == "failed" or .result == null).name] | unique | join(",")' \
+            "results/$CLIENT-$SERVER-first.json")
+          if [ -n "$failed" ]; then
+            run retry "$failed"
+            echo failed=true >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: results-${{ matrix.client }}-${{ matrix.server }}
+          path: ${{ runner.temp }}/runner/results
+          retention-days: 7
+      - if: steps.run.outputs.failed
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: logs-${{ matrix.client }}-${{ matrix.server }}
+          path: ${{ runner.temp }}/runner/logs
+          retention-days: 7
+
+  report:
+    name: Report
+    needs: interop
+    if: always() && needs.interop.result != 'skipped'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read # The previous run's summary.
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+      - name: Fetch the previous run's summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # An outage must not pass for a first run, which compares with nothing.
+        run: |
+          ids=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow interop.yml --branch main \
+            --status completed --limit 20 --json databaseId --jq '.[].databaseId')
+          for id in $ids; do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name interop-summary --dir previous && break || true
+          done
+          if [ -n "$ids" ] && [ ! -f previous/summary.json ]; then
+            echo "::error::No earlier run's summary could be downloaded"
+            exit 1
+          fi
+      # Saved before it is judged, so a regression is reported once.
+      - run: |
+          previous=()
+          [ -f previous/summary.json ] && previous=(--previous previous/summary.json)
+          python3 tests/interop/runner/compare.py results/*.json "${previous[@]}" --save summary.json --report
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: interop-summary
+          path: summary.json
+          retention-days: 90

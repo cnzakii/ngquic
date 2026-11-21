@@ -1,0 +1,49 @@
+name: QUIC interop runner
+description: >-
+  Check out the QUIC interop runner at a pinned commit in runner.temp/runner,
+  add ngquic's endpoint images to its implementations and, unless only the
+  list is wanted, install what running it needs.
+
+inputs:
+  install:
+    description: '"false" to skip Wireshark and the Python packages.'
+    default: "true"
+
+outputs:
+  implementations:
+    description: The runner's implementations file, ngquic's included.
+    value: ${{ steps.register.outputs.implementations }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      with:
+        repository: quic-interop/quic-interop-runner
+        ref: f4d1e9350e24e394cf0d795908a1ef4a041e4a77
+        path: interop-runner
+        persist-credentials: false
+    # Out of the workspace, so a job's own checkout cannot replace it.
+    - id: register
+      shell: bash
+      run: |
+        mv interop-runner "$RUNNER_TEMP/runner"
+        cd "$RUNNER_TEMP/runner"
+        url=https://github.com/cnzakii/ngquic
+        jq --arg url "$url" '. + {
+          "ngquic": {"image": "ngquic-qns:pr", "url": $url, "role": "both"},
+          "ngquic-base": {"image": "ngquic-qns:base", "url": $url, "role": "both"}
+        }' implementations_quic.json > implementations.json
+        mv implementations.json implementations_quic.json
+        echo "implementations=$RUNNER_TEMP/runner/implementations_quic.json" >> "$GITHUB_OUTPUT"
+    - if: inputs.install == 'true'
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.13"
+    # The runner needs Wireshark 4.5 or later, which ubuntu-24.04 lacks.
+    - if: inputs.install == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
+        pip install --requirement "$RUNNER_TEMP/runner/requirements.txt"
