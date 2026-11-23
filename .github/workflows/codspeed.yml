@@ -41,7 +41,7 @@ jobs:
           UV_PYTHON: ${{ steps.python.outputs.python-path }}
           # Unstripped Cython functions show by name in CodSpeed flame graphs.
           SKBUILD_INSTALL_STRIP: "false"
-      - uses: CodSpeedHQ/action@61efe07e57e55bedeab750c434504de272a56e8c # v5.6.1
+      - uses: CodSpeedHQ/action@af75f77f17a054769abefaa42fe8dc2975469b5f # v5.6.3
         with:
           mode: simulation
           run: uv run --no-sync pytest tests/benchmarks --codspeed
