@@ -1,0 +1,47 @@
+name: CodSpeed
+
+# Runs on every main push so pull requests always have a baseline to compare.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A pull request run supersedes its previous one; each main commit keeps its
+# own group so none of them loses its baseline.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  benchmarks:
+    name: Benchmarks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    # CodSpeed uses OIDC, so no long-lived upload token is stored.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      # CodSpeed's tracing needs the setup-python interpreter, not a uv-managed one.
+      - id: python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: uv sync --locked --no-dev --group test --group benchmark
+        env:
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+          # Unstripped Cython functions show by name in CodSpeed flame graphs.
+          SKBUILD_INSTALL_STRIP: "false"
+      - uses: CodSpeedHQ/action@61efe07e57e55bedeab750c434504de272a56e8c # v5.6.1
+        with:
+          mode: simulation
+          run: uv run --no-sync pytest tests/benchmarks --codspeed

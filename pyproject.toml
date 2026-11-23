@@ -1,0 +1,210 @@
+[build-system]
+requires = ["scikit-build-core>=1.0,<2", "cython>=3.1,<4", "cython-cmake>=0.2,<0.4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "ngquic"
+dynamic = ["version"]
+description = "A fast Sans-I/O QUIC and HTTP/3 library for Python, powered by ngtcp2 and nghttp3"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = [
+    "LICENSE",
+    "vendor/ngtcp2/COPYING",
+    "vendor/nghttp3/COPYING",
+    "vendor/aws-lc/LICENSE",
+]
+keywords = ["quic", "http3", "protocol", "sans-io", "ngtcp2", "nghttp3"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Internet",
+    "Typing :: Typed",
+]
+
+[[tool.dynamic-metadata]]
+provider = "scikit_build_core.metadata.regex"
+field = "version"
+input = "src/ngquic/_version.py"
+
+[dependency-groups]
+dev = [
+    { include-group = "lint" },
+    { include-group = "test" },
+    { include-group = "interop" },
+    { include-group = "benchmark" },
+]
+# Peers for the interoperability tests, which skip themselves without it.
+# Releases before 1.8 derive QUIC v2 update keys with the v1 label (RFC 9369,
+# section 3.3.2), and the fixed ones need Python 3.11.
+interop = [
+    "aioquic>=1.8,<2; python_version >= '3.11'",
+]
+lint = [
+    "cython-lint>=0.21,<0.22",
+    "pre-commit>=4,<5; python_version >= '3.11'",
+    "ruff>=0.15.22,<0.16",
+    "ty>=0.0.60,<0.1",
+]
+test = [
+    "pytest>=9.0,<10",
+]
+benchmark = [
+    "pytest-codspeed>=5,<6",
+]
+# benchmarks/compare.py: ngquic against aioquic, run by hand.
+compare = [
+    { include-group = "interop" },
+]
+# Cython's coverage plugin reads the generated C next to each .pyx.
+coverage = [
+    "coverage>=7.9,<8",
+    "cython>=3.1,<4",
+]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+# Opt-in: the project, ngtcp2 and nghttp3 whole, and only the build inputs of
+# AWS-LC, whose test data alone would exceed PyPI's upload limit. The AWS-LC
+# rules follow the aws-lc-sys crate of aws-lc-rs, which builds it from source.
+sdist.inclusion-mode = "explicit"
+sdist.include = [
+    "/pyproject.toml",
+    "/CMakeLists.txt",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/src/",
+    "/tests/",
+    "/vendor/ngtcp2/",
+    "/vendor/nghttp3/",
+    "/vendor/aws-lc/LICENSE",
+    "/vendor/aws-lc/**/*.c",
+    "/vendor/aws-lc/**/*.cc",
+    "/vendor/aws-lc/**/*.pl",
+    "/vendor/aws-lc/**/*.h",
+    "/vendor/aws-lc/**/*.h.in",
+    "/vendor/aws-lc/**/*.pc.in",
+    "/vendor/aws-lc/**/*.i",
+    "/vendor/aws-lc/**/*.S",
+    "/vendor/aws-lc/**/*.asm",
+    "/vendor/aws-lc/**/CMakeLists.txt",
+    "/vendor/aws-lc/**/*.cmake",
+    "/vendor/aws-lc/**/*.errordata",
+    "/vendor/aws-lc/**/err_data_generate.go",
+    "/vendor/aws-lc/**/*.lds",
+    "/vendor/aws-lc/**/*.inc",
+    "!/vendor/aws-lc/bindings/",
+    "!/vendor/aws-lc/docs/",
+    "!/vendor/aws-lc/fuzz/",
+    "!/vendor/aws-lc/generated-src/crypto_test_data.cc",
+    "!/vendor/aws-lc/tests/",
+    "!/vendor/aws-lc/third_party/",
+    "!/vendor/aws-lc/util/",
+    "!/vendor/aws-lc/tool/",
+    "!/vendor/aws-lc/tool-openssl/",
+    "/vendor/aws-lc/tests/compiler_features_tests/**/*.c",
+    "/vendor/aws-lc/third_party/fiat/**/LICENSE",
+    "/vendor/aws-lc/third_party/fiat/**/*.h",
+    "/vendor/aws-lc/third_party/s2n-bignum/**/*.S",
+    "/vendor/aws-lc/third_party/s2n-bignum/**/*.h",
+    "/vendor/aws-lc/third_party/jitterentropy/**/*.c",
+    "/vendor/aws-lc/third_party/jitterentropy/**/*.h",
+    "/vendor/aws-lc/third_party/jitterentropy/CMakeLists.txt",
+    "!/vendor/aws-lc/third_party/jitterentropy/jitterentropy-library/tests/",
+    "/vendor/aws-lc/util/fipstools/**/CMakeLists.txt",
+    "/vendor/aws-lc/util/fipstools/**/*.c",
+]
+sdist.exclude = ["**/.git", "**/__pycache__/", "*.so", "*.pyd"]
+wheel.exclude = ["**/*.pyx", "**/*.pxd", "**/*.pxi", "**/*.h"]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/ngquic/_version.py" },
+    { file = "src/**/*.{h,c,pyx,pxd,pxi}" },
+    { file = "CMakeLists.txt" },
+    # A submodule update rewrites its HEAD; scanning AWS-LC's tree would be slow.
+    { file = ".git/modules/vendor/*/HEAD" },
+]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-* cp314-* cp314t-* cp315-* cp315t-*"
+skip = ["*-win32", "*_i686"]
+# Without the interop group: aioquic's pylsqpack has no free-threaded build.
+before-test = 'python -m pip install --group "{project}/pyproject.toml:test"'
+test-command = 'pytest "{project}/tests"'
+
+# AWS-LC assembles x86_64 code with NASM, which it finds only on PATH.
+[[tool.cibuildwheel.overrides]]
+select = "*-win_amd64"
+before-all = "choco install -y --no-progress nasm"
+environment = { PATH = "C:/Program Files/NASM;$PATH" }
+
+# AWS-LC's Arm64 assembly on Windows builds only with the clang-cl toolset.
+[[tool.cibuildwheel.overrides]]
+select = "*-win_arm64"
+environment = { CMAKE_ARGS = "-T ClangCL" }
+
+[tool.ruff]
+extend-exclude = ["vendor"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C4", "SIM", "PIE", "PERF", "PYI", "RUF"]
+
+[tool.pytest]
+minversion = "9.0"
+testpaths = ["tests"]
+strict_config = true
+strict_markers = true
+strict_parametrization_ids = true
+strict_xfail = true
+filterwarnings = ["error"]
+markers = ["h3spec: runs the h3spec binary against a UDP server"]
+
+[tool.coverage.run]
+# Cython's plugin needs ctrace; Python 3.14's default sysmon does not support it.
+core = "ctrace"
+plugins = ["Cython.Coverage"]
+source = ["ngquic"]
+# The plugin finds a .pxd's C source only after reporting its .pyx, which
+# the report order does not guarantee; the declarations hold two inline lines.
+omit = ["*.pxd"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+# Cython runs definitions and other import-time statements of an included
+# .pxi with the .pyx's code object, so they read as missed; these match only
+# such lines.
+# shortcut: the def pattern would also drop a function body in a .py module;
+# the Python modules define no functions today, narrow it if one ever does.
+exclude_lines = [
+    '^\s*cp?def\b[^=(]*\(',
+    '^\s*def \w+\(',
+    '^\s*@(?:staticmethod|property|\w+\.setter)\s*$',
+    '^\s*__match_args__ = ',
+    '^_[A-Z_]+(?:\.\w+)? = ',
+    # Callbacks park any exception for the caller; only a bug or MemoryError
+    # gets there, which tests cannot trigger.
+    '^\s*except BaseException as error:\s*$',
+    '^\s*return _(?:h3_)?fail\(connection, error\)\s*$',
+]
+# Measured 96.10%; most of the rest are native failures (allocation, internal
+# errors) that need fault injection to reach.
+fail_under = 95
+
+[tool.ty.src]
+include = ["src", "tests"]

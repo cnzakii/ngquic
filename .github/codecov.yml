@@ -1,0 +1,14 @@
+# Coverage may drop by up to 1% from the base commit: each new native failure
+# path that tests cannot reach lowers the total slightly. fail_under in
+# pyproject.toml stays the hard floor.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    # A small patch loses about a point per such line, so its coverage is
+    # reported without failing the check.
+    patch:
+      default:
+        informational: true

@@ -1,0 +1,29 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: "/"
+    versioning-strategy: lockfile-only
+    schedule:
+      interval: monthly
+    # A release must be a week old, so a compromised one is likely pulled first.
+    cooldown:
+      default-days: 7
+    # One monthly PR for development tools; security updates stay separate.
+    groups:
+      development:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    # The workflows, and the composite actions they share.
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: monthly
+    # A release must be a week old, so a compromised one is likely pulled first.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Submodules are left out: Dependabot would follow upstream main, and the
+  # vendored libraries are pinned to release tags.
