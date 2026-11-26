@@ -30,7 +30,11 @@ class Network:
     """Two endpoints joined by an in-memory link on a virtual clock.
 
     ``drop`` decides per datagram whether the link loses it; ``on_event``
-    lets a test react to events the way an application would.
+    lets a test react to events the way an application would. ``arrival``
+    gives the source a datagram arrives from and the ``local_addr`` reported
+    with it (``None`` for the endpoint's), as sockets bound to any address
+    see them; ``server_bind`` is the server endpoint's address when it
+    differs from the one clients connect to.
     """
 
     server_tls: TLSContext
@@ -42,10 +46,15 @@ class Network:
     # Any: handlers call methods of the connection kind the test created.
     on_event: Callable[[Any, Event], object] = lambda connection, event: None
     accept: Callable[[Incoming], BaseConnection | None] | None = None
+    arrival: Callable[[Transmit], tuple[tuple, tuple | None]] = lambda transmit: (
+        transmit.local_addr,
+        transmit.remote_addr,
+    )
     now: float = 1.0
     gso: bool = True
     server_addr: tuple = SERVER_ADDR
     client_addr: tuple = CLIENT_ADDR
+    server_bind: tuple | None = None
     events: dict = field(default_factory=dict)
     accepted: BaseConnection | None = None
     sent: list = field(default_factory=list)
@@ -57,7 +66,9 @@ class Network:
         return self.accepted
 
     def __post_init__(self):
-        self.server_endpoint = Endpoint(self.server_addr, self.server_config)
+        self.server_endpoint = Endpoint(
+            self.server_bind or self.server_addr, self.server_config
+        )
         self.client_endpoint = Endpoint(self.client_addr)
         self.connections: list[BaseConnection] = []
 
@@ -155,8 +166,8 @@ class Network:
         """Deliver every pending datagram between the two endpoints.
 
         Each datagram arrives from its ``Transmit.local_addr`` at its
-        ``Transmit.remote_addr``, so migration and preferred addresses show
-        up as the peer would see them.
+        ``Transmit.remote_addr`` unless ``arrival`` says otherwise, so
+        migration and preferred addresses show up as the peer would see them.
         """
         moved = False
         outgoing: list[tuple[Transmit, Endpoint]] = [
@@ -183,11 +194,9 @@ class Network:
                 self.sent.append(datagram)
                 if self.drop(datagram, transmit.remote_addr):
                     continue
+                source, local_addr = self.arrival(transmit)
                 result = target.receive_datagram(
-                    datagram,
-                    transmit.local_addr,
-                    self.now,
-                    local_addr=transmit.remote_addr,
+                    datagram, source, self.now, local_addr=local_addr
                 )
                 if isinstance(result, Incoming):
                     accepted = self.accept_incoming(result)

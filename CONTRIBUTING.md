@@ -36,30 +36,24 @@ uv run --locked pytest
 uv build
 ```
 
-CI runs the same checks, the tests on every supported Python and platform
-and under AddressSanitizer and UBSan, and rebuilds a wheel from the sdist.
-Its `h3spec` job checks QUIC and HTTP/3 error handling with
-[h3spec](https://github.com/kazu-yamamoto/h3spec) against `tests/interop/peer.py`;
-a failure outside the expected-failure table in `tests/interop/test_h3spec.py`
-fails it. On pull requests its `interop` jobs run the
+CI runs the same checks and adds what a laptop cannot: the tests on every
+supported Python and platform and under AddressSanitizer and UBSan, a
+coverage floor over the traced Cython modules, a wheel rebuilt from the
+sdist, [h3spec](https://github.com/kazu-yamamoto/h3spec) against the interop
+peer (a failure outside its expected-failure table fails), and on pull
+requests the
 [QUIC interop runner](https://github.com/quic-interop/quic-interop-runner)
-between ngquic's endpoint image (`tests/interop/runner/`) and quic-go,
-quiche, msquic and picoquic in both roles, with the base branch's image
-beside it; `tests/interop/runner/compare.py` fails a job only for a test that
-passed on the base and fails twice here. They are not required checks. The
-weekly `interop.yml` runs main against every implementation the runner lists
-and fails on a test that passed in the previous week's run.
-Its coverage job traces the Cython modules
-(`-C cmake.define.EMBERLYN_COVERAGE=ON`) and fails below the `fail_under`
-floor in `pyproject.toml`. CodSpeed measures `tests/benchmarks` on every pull
-request; run them locally with `uv run --locked pytest tests/benchmarks
---codspeed`.
-`benchmarks/compare.py` compares the protocol engine with aioquic over QUIC
-and HTTP/3 (throughput, requests per second with latency, handshakes,
-datagrams, memory per idle connection); run it by hand with
+against other implementations, with the base branch's endpoint beside it:
+a test fails the job only if it passed on the base and fails twice here.
+The interop jobs are not required checks; a weekly run against every
+implementation catches regressions on main. Changes to the build or the
+vendored libraries also build every release wheel.
+
+CodSpeed measures the benchmarks on every pull request; run them locally
+with `uv run --locked pytest tests/benchmarks --codspeed`. A comparison with
+aioquic (throughput, requests per second with latency, handshakes,
+datagrams, memory per idle connection) runs by hand with
 `uv run --locked --group compare python benchmarks/compare.py`.
-Changes to the build or the vendored libraries also build every release
-wheel with cibuildwheel, configured in `pyproject.toml`.
 
 Add or update tests for observable behavior changes. Keep public exports,
 type stubs, documentation and native behavior synchronized. Include
@@ -145,18 +139,18 @@ a test passes with an impossible input.
 - Use `pytest.raises` with the specific exception and a `match` on the part
   the caller relies on, and `pytest.mark.parametrize` with readable ids for
   one rule over many inputs.
-- Connections talk over `support.network.Network`, an in-memory link on a
-  virtual clock that jumps to the next timer. Wait for an event with `run(until)`,
-  let time pass with `advance(seconds)`, and assert exactly the time a
-  timeout promises. Inject loss with `drop`.
+- Connections talk over the shared in-memory network on a virtual clock
+  that jumps to the next timer: wait for an event, let time pass, assert
+  exactly the time a timeout promises, and inject loss there. Real sockets
+  and the real clock are for what only the system can show, such as UDP
+  socket options.
 - Interoperability tests run aioquic in the same process on the same virtual
   clock. Add one when a change affects bytes on the wire. aioquic is an
   optional dependency (the `interop` group): a test file that needs it starts
   with `pytest.importorskip("aioquic")` so free-threaded builds, where it does
   not install, still run the rest.
-- ngtcp2 and nghttp3 allocate through Python's raw allocator, so
-  `tests/robustness/test_allocation_failure.py` fails one allocation of a
-  call at a time with CPython's `_testcapi.set_nomemory()`, inside or outside
+- ngtcp2 and nghttp3 allocate through Python's raw allocator, so the
+  allocation-failure tests fail one allocation of a call at a time with CPython's `_testcapi.set_nomemory()`, inside or outside
   the native libraries. uv-managed interpreters leave `_testcapi` out and skip
   these tests; CI's sanitizer and coverage jobs run them on setup-python's
   interpreter, and locally `--python` with a python.org or Homebrew build

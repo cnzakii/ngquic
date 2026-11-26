@@ -6,106 +6,80 @@ agent needs beyond them.
 
 ## Product Boundary
 
-- `ngquic` is a Sans-I/O QUIC library for Python (RFC 8999, 9000, 9001,
-  9002, 9221, 9287, 9368, 9369), implemented as a Cython binding over the
-  vendored ngtcp2 and AWS-LC sources. HTTP/3 (RFC 9114, 9204, 9218, 9220, 9297, 9412) lives in
-  `ngquic.h3` over the vendored nghttp3; the QUIC API stays usable without
-  it. Other application protocols build on it and do not live here.
-- ngtcp2 owns connection and stream state, packet protection, loss recovery,
-  congestion control, flow control windows, PMTUD, key update and path
-  validation. AWS-LC owns the TLS 1.3 handshake. Do not reimplement native
-  behavior in the binding without a demonstrated need.
+- `ngquic` is a sans-I/O QUIC library for Python (RFC 8999, 9000, 9001,
+  9002, 9221, 9287, 9368, 9369): a Cython binding over vendored ngtcp2 and
+  AWS-LC. HTTP/3 (RFC 9114, 9204, 9218, 9220, 9297, 9412) lives in
+  `ngquic.h3` over vendored nghttp3; the QUIC API stays usable without it.
+  Other application protocols build on ngquic and do not live here.
+- ngtcp2 owns connection and stream state, packet protection, loss
+  recovery, congestion control, flow control windows, PMTUD, key update and
+  path validation; AWS-LC owns the TLS 1.3 handshake. Do not reimplement
+  native behavior in the binding without a demonstrated need.
 - The binding owns what ngtcp2 leaves to its application: the endpoint
   (connection ID demultiplexing, Retry, address validation tokens, version
-  negotiation, stateless reset), keeping unacknowledged stream data, flow
-  control credit, the closing and draining periods, and timers expressed on
-  the caller's clock. It also owns Python-facing objects, event and error
-  translation, buffer lifetimes, configuration mapping, type information and
-  packaging.
-- Sockets, event loops, GSO/GRO and ECN system calls, DNS, certificate
-  storage policy and application timeouts stay outside this package: callers
-  pass datagrams, addresses and `now` in, and send what comes out.
-  `TLSContext.load_default_certs()` trusts only what `ssl` trusts by default,
-  read through the `ssl` module, so its meaning matches `ssl.SSLContext`.
+  negotiation, stateless reset), unacknowledged stream data, flow control
+  credit, the closing and draining periods, and timers on the caller's
+  clock. It also owns the Python objects, event and error translation,
+  buffer lifetimes, configuration mapping, type stubs and packaging.
+- Sockets, event loops, DNS, certificate storage policy and application
+  timeouts stay outside: callers pass datagrams, addresses and `now` in, and
+  send what comes out. The optional `ngquic.udp` makes the batched UDP
+  system calls on a socket the caller owns; the protocol core never depends
+  on it.
+- RFCs, ngtcp2 documentation and pinned source are authority. ngtcp2's
+  examples and mature users (curl) show how its API is meant to be used;
+  quinn, quiche and aioquic are observed practice, evidence about tradeoffs
+  rather than specification.
 
-## Repository Map
+## Design Rules
 
-- `src/ngquic`: the QUIC package. Python API (`config`, `enums`, `types`,
-  `exceptions`, `events`) and stubs at the top. The native module `_core.pyx`
-  is the only one that links ngtcp2 and AWS-LC; it and `_core.pxd` only list
-  the fragments in `_quic/`, where each class has its declaration (`.pxd`:
-  fields and C methods) beside its implementation (`.pxi`), as uvloop and
-  asyncpg do. `_core.pxd` is the C interface for protocol layers:
-  `BaseConnection` fields, stream protocol hooks and the ngtcp2 calls they
-  may make. C library declarations live in `includes/` (`ngtcp2.pxd`,
-  `glue.h`).
-- `src/ngquic/h3`: the HTTP/3 package, the same shape. Its native module
-  `_core.pyx` (fragments in `_h3/`, nghttp3 declarations in `includes/`)
-  links only nghttp3 and subclasses `BaseConnection`. Dependencies point one
-  way: `h3` imports QUIC, QUIC imports `h3` only inside `connect()` and
-  `accept()` when `h3=` is given.
-- Inside a fragment: class docstring, construction, public properties and
-  methods in `# ----` sections in the same order as the `.pyi`, then hooks
-  and private C helpers; the `.pxd` follows the `.pxi` order.
-- `vendor/ngtcp2`, `vendor/nghttp3`, `vendor/aws-lc`: pinned upstream Git
-  submodules; update them as dependencies, never by editing vendored source
-  in place.
-- `.github/workflows`: `ci.yml` runs the local gate, the tests on every
-  supported Python and platform, the sanitizers and coverage, and on pull
-  requests the interop runner against the base branch's endpoint, and runs
-  monthly as well; `interop.yml` runs main against every interop runner
-  implementation weekly, both through the composite action in
-  `.github/actions/interop-runner`; `codspeed.yml` tracks the benchmarks;
-  `release.yml` builds
-  wheels with cibuildwheel (configured in `pyproject.toml`) and publishes
-  `v*` tags to PyPI. Dependabot updates uv and Actions pins monthly; the
-  vendored submodules are updated by hand to release tags.
-- `tests`: `quic/` and `h3/` hold behavior tests by feature; `rfc/quic/` and
-  `rfc/h3/` hold one file per RFC (`test_rfcNNNN_<topic>.py`) whose module
-  docstring names the sections it covers; `interop/` runs aioquic and
-  aioquic.h3 as in-process peers, and holds `peer.py`, ngquic on real UDP
-  sockets, which h3spec (`test_h3spec.py`) and the QUIC interop runner image
-  (`runner/`, with `compare.py`, which judges the runner's results) drive; `robustness/` covers error paths and resource
-  cleanup; `benchmarks/` holds the CodSpeed workloads, which run once as
-  plain tests without `--codspeed`. Shared helpers live in `support/`
-  (`network.Network`, the in-memory link on a virtual clock; `h3.H3Network`;
-  aioquic peers and raw HTTP/3 frames; `certs/`, fixed test-only
-  certificates that `generate.sh` recreates); test files import helpers only
-  from `support`, never from each other, and fixtures live in `conftest.py`.
-- `benchmarks/compare.py`: ngquic against aioquic, by hand, not in CI.
-- `*.local.md`: untracked design notes, including the ngtcp2 and nghttp3 API
-  coverage tables with the reason each hidden or unused API stays hidden.
+- Dependencies point one way: `h3` builds on QUIC, optional modules build on
+  the core, and neither adds modes or flags to what it builds on.
+- Share a conversion or helper rather than copying it; two copies of one
+  rule drift apart.
+- An error surfaces on the object the caller holds, so the caller knows
+  what failed; one connection's failure never escapes a call that serves
+  several.
+- Public API grows only for a caller who needs it. Anything ngtcp2 offers
+  that the API does not expose has its reason recorded in the untracked API
+  coverage notes.
+- Platform-specific code builds and runs only where it is implemented, and
+  its tests skip elsewhere with a stated reason.
+- Each native class keeps its declaration (`.pxd`) beside its
+  implementation (`.pxi`); members follow the order of the `.pyi` stub.
+- Vendored libraries are pinned upstream releases, never edited in place.
 
-## Change Rules
+## Native Code Rules
 
-- Read affected callers, tests, exports, stubs and configuration before
-  editing. Update runtime behavior, `__init__.py` exports, `.pyi` files and
-  tests together when a Python contract changes.
-- Use the ngtcp2 public API the way its examples and mature users (curl's
-  `cf-ngtcp2`) do. Back protocol and ngtcp2 claims with RFCs, ngtcp2
-  documentation or pinned source; treat quinn, quiche and aioquic as observed
-  practice, not authority.
-- When ngtcp2 exposes a capability that the public API does not, record the
-  reason in the API coverage notes.
-- Native callbacks run inside ngtcp2 or AWS-LC. They never raise: they store
-  the exception and return an error code, and the public method that drove
-  them re-raises it. Releasing native state calls back only the qlog writer
-  (`ngtcp2_conn_del()` writes the final record), so only it checks for a
-  released connection; `nghttp3_conn_del()` and `SSL_free()` call none of
-  ours, and every other callback runs inside a read, write or timer call
-  that needs a live connection.
-- ngtcp2 and nghttp3 allocate through `PyMem_Raw*`. Store a Python object
-  where the binding owns it before handing its pointer to native code
-  (stream user data): a `MemoryError` in between would leave the library a
-  dangling pointer. `tests/robustness/test_allocation_failure.py` fails each
-  allocation of a call in turn.
-- Treat pointers ngtcp2 hands to callbacks as callback-scoped unless the
-  upstream API guarantees a longer lifetime. Stream data passed to ngtcp2
-  stays alive until `acked_stream_data_offset` covers it.
-- Ruff and ty do not validate Cython source. Binding changes must also pass
+- Callbacks from ngtcp2, nghttp3 and AWS-LC never raise: they store the
+  exception and return an error code, and the binding raises it once
+  control is back with the caller.
+- The libraries allocate through Python's raw allocator, so any allocation
+  can fail: store a Python object where the binding owns it before handing
+  its pointer to native code.
+- A pointer from native code is valid only as long as its API documents;
+  copy what must outlive that. Data handed to ngtcp2 stays alive until
+  ngtcp2 is done with it.
+- Build lists in Cython with loops, not comprehensions: Cython 3.3 releases
+  a comprehension's item twice when appending it fails.
+- Ruff and ty do not check Cython: binding changes must also pass
   `cython-lint`, compile, and run the relevant tests.
-- Keep generated C files, build output, local environments, editor state,
-  temporary reports and personal instructions out of version control.
 
-Work is complete only after the relevant focused tests and the local gate in
-CONTRIBUTING.md pass.
+## Working Rules
+
+- Read the affected implementation, its callers, tests, exports, stubs and
+  configuration before editing. Establish the requested outcome and its
+  non-goals before adding files or abstractions.
+- Open an issue or ask before adding public API or changing protocol
+  behavior, as CONTRIBUTING.md asks.
+- A Python contract changes in its runtime code, exports, stub, tests and
+  changelog together.
+- Tests import shared helpers only from the support package, never from
+  each other; fixtures live in `conftest.py`.
+- Verify platform-specific behavior on that platform. For a fix, break the
+  code once by hand and confirm a test fails.
+- Run the checks of CONTRIBUTING.md on what you touch, and report exactly
+  which ran and their results. Never claim that a check passed without
+  running it.
+- Keep generated output, local environments, editor state, temporary
+  reports and personal instructions out of version control.

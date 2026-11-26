@@ -5,7 +5,8 @@ cdef class Endpoint:
     connections from one thread or task at a time.
 
     Args:
-        local_addr: Address the datagrams arrive at and leave from.
+        local_addr: Address the datagrams arrive at and leave from, port
+            included, such as the bound socket's ``getsockname()``.
         config: Endpoint behavior.
 
     Raises:
@@ -20,7 +21,7 @@ cdef class Endpoint:
             config = _DEFAULT_ENDPOINT
         elif not isinstance(config, EndpointConfig):
             raise TypeError("config must be an EndpointConfig")
-        _to_sockaddr(local_addr, &self._local, &self._local_len)
+        _to_local_sockaddr(local_addr, &self._local, &self._local_len)
         self._cid_len = <size_t>_uint(
             config.connection_id_length, "connection_id_length", 20,
         )
@@ -90,7 +91,9 @@ cdef class Endpoint:
                 resumption skips the certificate check, as with ``ssl``.
             token: Token from ``NewTokenReceived`` that lets the server skip
                 address validation.
-            local_addr: Local address of the path; defaults to the endpoint's.
+            local_addr: Local address of the path; defaults to the
+                endpoint's. A specific address, such as ``getsockname()``
+                of a socket connected to ``remote_addr``.
             version: QUIC version of the first flight.
             h3: ``H3Config`` to speak HTTP/3 on this connection; the result
                 is then an ``H3Connection``. ``tls`` must offer ``"h3"``.
@@ -131,41 +134,38 @@ cdef class Endpoint:
             ecn: ECN bits from the IP header.
 
         Returns:
-            The connection that consumed it, an ``Incoming`` connection
-            attempt to accept or refuse, or ``None`` if it was dropped,
-            answered statelessly, or belongs to an ``Incoming`` already
-            returned and not yet decided (a retransmitted Initial or 0-RTT),
-            which then processes it on ``accept()``.
+            The connection that consumed it, whose next ``events()`` raises
+            ``InternalError`` if a protocol callback failed and dropped it;
+            an ``Incoming`` connection attempt to accept or refuse; or
+            ``None`` if it was dropped, answered statelessly, or belongs to
+            an ``Incoming`` already returned and not yet decided (a
+            retransmitted Initial or 0-RTT), which then processes it on
+            ``accept()``.
         """
         cdef Py_buffer view
         cdef ng.ngtcp2_tstamp ts = _timestamp(now)
-        cdef ng.ngtcp2_path path
-        cdef ng.ngtcp2_sockaddr_union local, remote
-        cdef ng.ngtcp2_socklen local_len, remote_len
+        cdef ng.ngtcp2_addr remote, local
+        cdef ng.ngtcp2_sockaddr_union remote_native, local_native
+        cdef ng.ngtcp2_socklen remote_len
 
         if remote_addr is not self._remote_key and remote_addr != self._remote_key:
             # Committed together, so a rejected address leaves the cache whole.
-            _to_sockaddr(remote_addr, &remote, &remote_len)
-            self._remote = remote
+            _to_sockaddr(remote_addr, &remote_native, &remote_len)
+            self._remote = remote_native
             self._remote_len = remote_len
             self._remote_key = remote_addr
-        path.remote.addr = &self._remote.sa
-        path.remote.addrlen = self._remote_len
-        if local_addr is None:
-            path.local.addr = &self._local.sa
-            path.local.addrlen = self._local_len
-            local_addr = self.local_addr
-        else:
-            _to_sockaddr(local_addr, &local, &local_len)
-            path.local.addr = &local.sa
-            path.local.addrlen = local_len
-        path.user_data = NULL
+        remote.addr = &self._remote.sa
+        remote.addrlen = self._remote_len
+        if local_addr is not None:
+            _to_local_sockaddr(local_addr, &local_native, &local.addrlen)
+            local.addr = &local_native.sa
 
         PyObject_GetBuffer(data, &view, PyBUF_CONTIG_RO)
         try:
-            return self._process(
-                <const uint8_t *>view.buf, view.len,
-                &path, remote_addr, local_addr, <uint8_t>ecn, ts,
+            return self._receive(
+                <const uint8_t *>view.buf, view.len, &remote, remote_addr,
+                NULL if local_addr is None else &local, local_addr, <uint8_t>ecn,
+                ts,
             )
         finally:
             PyBuffer_Release(&view)
@@ -175,6 +175,35 @@ cdef class Endpoint:
         result = self._stateless
         self._stateless = []
         return result
+
+    cdef object _receive(
+        self, const uint8_t *packet, size_t length, const ng.ngtcp2_addr *remote,
+        object remote_addr, const ng.ngtcp2_addr *local, object local_addr,
+        uint8_t ecn, ng.ngtcp2_tstamp ts,
+    ):
+        """Process one UDP payload; a NULL ``local`` is the endpoint's address.
+
+        The entry point for native modules that read datagrams themselves,
+        so it takes addresses as the system reports them.
+        """
+        cdef ng.ngtcp2_path path
+        cdef ng.ngtcp2_sockaddr_union remote_copy, local_copy
+
+        memcpy(&remote_copy, remote.addr, remote.addrlen)
+        ng.glue_clear_sa_len(&remote_copy.sa)
+        path.remote.addr = &remote_copy.sa
+        path.remote.addrlen = remote.addrlen
+        if local == NULL:
+            path.local.addr = &self._local.sa
+            path.local.addrlen = self._local_len
+            local_addr = self.local_addr
+        else:
+            memcpy(&local_copy, local.addr, local.addrlen)
+            ng.glue_clear_sa_len(&local_copy.sa)
+            path.local.addr = &local_copy.sa
+            path.local.addrlen = local.addrlen
+        path.user_data = NULL
+        return self._process(packet, length, &path, remote_addr, local_addr, ecn, ts)
 
     cdef object _process(
         self, const uint8_t *packet, size_t length, ng.ngtcp2_path *path,
@@ -196,8 +225,9 @@ cdef class Endpoint:
         key = _cid_key(vc.dcid, vc.dcidlen)
         connection = self._cids.get(key)
         if connection is not None:
-            (<BaseConnection>connection)._receive(packet, length, path, ecn, ts)
-            return connection
+            return self._deliver(
+                <BaseConnection>connection, packet, length, path, ecn, ts,
+            )
         incoming = self._undecided.get(key)
         if incoming is not None:
             # accept() replays these on the first datagram's path, whose
@@ -229,11 +259,28 @@ cdef class Endpoint:
                 ng.NGTCP2_STATELESS_RESET_TOKENLEN,
             ))
             if connection is not None:
-                (<BaseConnection>connection)._receive(packet, length, path, ecn, ts)
-                return connection
+                return self._deliver(
+                    <BaseConnection>connection, packet, length, path, ecn, ts,
+                )
         if self._stateless_reset:
             self._send_stateless_reset(&vc, length, remote_addr, local_addr)
         return None
+
+    cdef BaseConnection _deliver(
+        self, BaseConnection connection, const uint8_t *packet, size_t length,
+        ng.ngtcp2_path *path, uint8_t ecn, ng.ngtcp2_tstamp ts,
+    ):
+        """Pass a datagram to ``connection``.
+
+        A failure while it handles the datagram, such as a protocol callback
+        failing and dropping it, waits for its next ``events()``, so the
+        caller learns which connection failed and the others go on.
+        """
+        try:
+            connection._receive(packet, length, path, ecn, ts)
+        except Exception as error:
+            connection._deferred_error = error
+        return connection
 
     cdef Incoming _incoming(
         self, ng.ngtcp2_pkt_hd *hd, bytes key, const uint8_t *packet, size_t length,

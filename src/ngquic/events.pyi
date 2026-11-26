@@ -166,6 +166,12 @@ class PathValidated(Event):
     @property
     def success(self) -> bool: ...
 
+class PathDegrading(Event):
+    __match_args__ = ()
+
+class PathRecovered(Event):
+    __match_args__ = ()
+
 class ConnectionTerminated(Event):
     __match_args__ = ("reason", "error_code", "frame_type", "reason_phrase", "by_peer")
     def __init__(

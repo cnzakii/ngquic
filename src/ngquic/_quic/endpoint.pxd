@@ -27,9 +27,18 @@ cdef class Endpoint:
     cdef ng.ngtcp2_preferred_addr _preferred_addr
     cdef bint _has_preferred_addr
 
+    cdef object _receive(
+        self, const uint8_t *packet, size_t length, const ng.ngtcp2_addr *remote,
+        object remote_addr, const ng.ngtcp2_addr *local, object local_addr,
+        uint8_t ecn, ng.ngtcp2_tstamp ts,
+    )
     cdef object _process(
         self, const uint8_t *packet, size_t length, ng.ngtcp2_path *path,
         object remote_addr, object local_addr, uint8_t ecn, ng.ngtcp2_tstamp ts,
+    )
+    cdef BaseConnection _deliver(
+        self, BaseConnection connection, const uint8_t *packet, size_t length,
+        ng.ngtcp2_path *path, uint8_t ecn, ng.ngtcp2_tstamp ts,
     )
     cdef Incoming _incoming(
         self, ng.ngtcp2_pkt_hd *hd, bytes key, const uint8_t *packet, size_t length,

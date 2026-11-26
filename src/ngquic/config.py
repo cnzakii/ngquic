@@ -43,6 +43,10 @@ class TransportConfig:
         handshake_timeout: Time allowed for the handshake; ``None`` disables it.
         keep_alive_interval: Idle time after which a PING keeps the
             connection alive; ``None`` disables keep-alive.
+        path_degrading_ptos: Probe timeouts that data in flight may wait
+            for acknowledgment progress before a client reports
+            ``PathDegrading``, at least 1; ``None`` disables it. The
+            default of 4 matches Google quiche.
         initial_rtt: Round-trip time assumed before the first measurement.
         max_ack_delay: Maximum time this side delays acknowledgements.
         ack_delay_exponent: Exponent used to encode ACK delays.
@@ -61,7 +65,8 @@ class TransportConfig:
         disable_active_migration: Whether the peer must not migrate.
         use_preferred_address: Whether a client moves to the server's
             preferred address of the same address family once the
-            handshake is confirmed.
+            handshake is confirmed. The move keeps the local address, so
+            it needs a socket that is not connected to the first one.
         congestion_control: Congestion control algorithm.
         max_datagram_frame_size: Largest DATAGRAM frame accepted; ``None``
             disables DATAGRAM support.
@@ -93,6 +98,7 @@ class TransportConfig:
     idle_timeout: float | None = 30.0
     handshake_timeout: float | None = None
     keep_alive_interval: float | None = None
+    path_degrading_ptos: int | None = 4
     initial_rtt: float = 0.333
     max_ack_delay: float = 0.025
     ack_delay_exponent: int = 3

@@ -8,11 +8,12 @@ cdef class Event:
 
     def __repr__(self):
         """Return a representation containing the public event fields."""
-        fields = ", ".join(
-            f"{name}={getattr(self, name)!r}"
-            for name in type(self).__match_args__
-        )
-        return f"{type(self).__name__}({fields})"
+        # Not a comprehension: Cython 3.3 frees a comprehension's item twice
+        # when appending it fails.
+        fields = []
+        for name in type(self).__match_args__:
+            fields.append(f"{name}={getattr(self, name)!r}")
+        return f"{type(self).__name__}({', '.join(fields)})"
 
     def __eq__(self, other):
         """Compare events of the same type field by field."""
@@ -299,6 +300,25 @@ cdef class PathValidated(Event):
         self.remote_addr = remote_addr
         self.preferred_address = preferred_address
         self.success = success
+
+
+cdef class PathDegrading(Event):
+    """Data in flight went unacknowledged for the configured probe timeouts.
+
+    Reported once per stall to clients with
+    ``TransportConfig.path_degrading_ptos`` set, after handshake
+    confirmation; ``PathRecovered`` follows once the peer acknowledges again.
+    The connection stays open: whether to stop opening streams on it is the
+    caller's decision.
+    """
+
+    __match_args__ = ()
+
+
+cdef class PathRecovered(Event):
+    """The peer acknowledged data again after ``PathDegrading``."""
+
+    __match_args__ = ()
 
 
 cdef class ConnectionTerminated(Event):

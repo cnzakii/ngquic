@@ -37,6 +37,7 @@ from ngquic import (
         (TransportConfig(pmtud_probes=()), ValueError, "pmtud_probes"),
         (TransportConfig(pmtud_probes=(1200,)), ValueError, "pmtud_probes"),
         (TransportConfig(pmtud_probes=(1500,)), ValueError, "pmtud_probes"),
+        (TransportConfig(path_degrading_ptos=0), ValueError, "path_degrading_ptos"),
     ],
     ids=[
         "not-a-config",
@@ -51,6 +52,7 @@ from ngquic import (
         "no-probes",
         "probe-at-minimum",
         "probe-above-tx-limit",
+        "zero-degrading-ptos",
     ],
 )
 def test_connect_rejects_an_invalid_transport(network, transport, error, match):
@@ -120,12 +122,20 @@ def test_endpoint_rejects_an_invalid_config(config, error, match):
         ((b"127.0.0.1", 4433), TypeError, "host must be a str"),
         (("::1", 4433, -1, 0), ValueError, "flowinfo"),
         (("::1", 4433, 0, 1 << 32), ValueError, "scope_id"),
+        (("0.0.0.0", 0), ValueError, "name a port"),
     ],
-    ids=["bytes-host", "negative-flowinfo", "large-scope-id"],
+    ids=["bytes-host", "negative-flowinfo", "large-scope-id", "no-port"],
 )
 def test_endpoint_rejects_an_invalid_address(address, error, match):
     with pytest.raises(error, match=match):
         Endpoint(address)
+
+
+def test_a_datagram_needs_a_local_port(network):
+    with pytest.raises(ValueError, match="name a port"):
+        network.client_endpoint.receive_datagram(
+            bytes(1200), SERVER_ADDR, 1.0, local_addr=("127.0.0.1", 0)
+        )
 
 
 def test_connect_requires_a_client_context(network):

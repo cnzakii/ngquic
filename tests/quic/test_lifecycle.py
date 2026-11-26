@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 from support.network import CLIENT_ADDR, SERVER_ADDR, Network
 
@@ -235,6 +237,76 @@ def test_migration_validates_the_new_path(network):
     assert client.local_addr == new_local
 
 
+def _on_loopback(address):
+    """The address a datagram to a socket bound to 0.0.0.0 reports."""
+    return ("127.0.0.1", *address[1:]) if address[0] == "0.0.0.0" else address
+
+
+@pytest.mark.parametrize("any_address", ["0.0.0.0", "::", "::ffff:0.0.0.0"])
+def test_connect_needs_a_specific_local_address(network, any_address):
+    with pytest.raises(ValueError, match="specific address"):
+        network.connect(local_addr=(any_address, 50000))
+
+
+@pytest.mark.parametrize("any_address", ["0.0.0.0", "::ffff:0.0.0.0"])
+def test_migration_needs_a_specific_local_address(network, any_address):
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+
+    with pytest.raises(ValueError, match="specific address"):
+        client.migrate((any_address, 50001), network.now)
+
+
+def test_a_server_bound_to_any_address_moves_to_its_preferred_address(
+    server_tls, client_tls
+):
+    preferred = ("127.0.0.2", 4434)
+    network = Network(
+        server_tls=server_tls,
+        client_tls=client_tls,
+        server_bind=("0.0.0.0", 4433),
+        server_config=EndpointConfig(
+            preferred_address=PreferredAddress(ipv4=preferred)
+        ),
+        # The first socket reports no destination, the preferred one does.
+        arrival=lambda transmit: (
+            _on_loopback(transmit.local_addr),
+            transmit.remote_addr if transmit.remote_addr == preferred else None,
+        ),
+    )
+    client = network.connect()
+    network.run(lambda: network.events_of(client, PathValidated))
+    stream_id = client.open_stream()
+    client.send_stream_data(stream_id, b"ping", end_stream=True)
+    network.run(lambda: network.events_of(network.server, StreamDataReceived))
+
+    network.server.send_stream_data(stream_id, b"pong", end_stream=True)
+    network.run(
+        lambda: (
+            network.events_of(client, StreamDataReceived)
+            and network.events_of(network.server, PathValidated)
+        )
+    )
+
+    assert [event.data for event in network.events_of(client, StreamDataReceived)] == [
+        b"pong"
+    ]
+    assert network.server.local_addr == preferred
+
+
+def test_migration_needs_a_local_port(network):
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+
+    with pytest.raises(ValueError, match="name a port"):
+        client.migrate(("127.0.0.1", 0), network.now)
+
+
+def test_connect_needs_a_local_port(network):
+    with pytest.raises(ValueError, match="name a port"):
+        network.connect(local_addr=("127.0.0.1", 0))
+
+
 def test_migration_before_confirmation_raises(network):
     client = network.connect()
 
@@ -258,6 +330,109 @@ def test_failing_qlog_callback_drops_the_connection(server_tls, client_tls):
 
     assert isinstance(raised.value.__cause__, RuntimeError)
     assert client.state is ConnectionState.CLOSED
+
+
+def test_a_callback_failing_on_receive_surfaces_in_that_connections_events(
+    server_tls, client_tls
+):
+    failing = False
+
+    def qlog(data, final):
+        if failing:
+            raise RuntimeError("disk full")
+
+    network = Network(
+        server_tls=server_tls,
+        client_tls=client_tls,
+        client_transport=TransportConfig(qlog=qlog),
+    )
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+    network.server.close()
+    [transmit] = network.server.datagrams_to_send(network.now)
+    failing = True
+
+    returned = network.client_endpoint.receive_datagram(
+        transmit.data[: transmit.segment_size],
+        transmit.local_addr,
+        network.now,
+        local_addr=transmit.remote_addr,
+    )
+
+    assert returned is client
+    with pytest.raises(InternalError, match="callback failed") as raised:
+        client.events()
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    assert client.events() == []
+    assert client.state is ConnectionState.CLOSED
+
+
+def test_a_final_qlog_notice_failing_is_reported_as_unraisable(
+    server_tls, client_tls, monkeypatch, capsys
+):
+    unraisable = []
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+
+    def qlog(data, final):
+        if final:
+            raise RuntimeError("disk full")
+
+    network = Network(
+        server_tls=server_tls,
+        client_tls=client_tls,
+        client_transport=TransportConfig(qlog=qlog),
+    )
+    client = network.connect()
+    [initial] = client.datagrams_to_send(network.now, max_datagrams=1)
+    dcid = initial.data[6 : 6 + initial.data[5]]
+    scid_at = 7 + len(dcid)
+    scid = initial.data[scid_at : scid_at + initial.data[scid_at - 1]]
+    # Version Negotiation offering only a version the client lacks.
+    negotiation = (
+        b"\x80\x00\x00\x00\x00"
+        + bytes([len(scid)])
+        + scid
+        + bytes([len(dcid)])
+        + dcid
+        + bytes.fromhex("1a2a3a4a")
+    )
+
+    returned = network.client_endpoint.receive_datagram(
+        negotiation, SERVER_ADDR, network.now, local_addr=CLIENT_ADDR
+    )
+
+    assert returned is client
+    assert [
+        event.reason
+        for event in client.events()
+        if isinstance(event, ConnectionTerminated)
+    ] == [CloseReason.VERSION_NEGOTIATION]
+    assert [type(hook.exc_value) for hook in unraisable] == [RuntimeError]
+    assert capsys.readouterr().err == ""
+
+
+def test_an_interrupt_in_a_callback_is_not_held_for_events(server_tls, client_tls):
+    interrupting = False
+
+    def qlog(data, final):
+        if interrupting:
+            raise KeyboardInterrupt
+
+    network = Network(
+        server_tls=server_tls,
+        client_tls=client_tls,
+        client_transport=TransportConfig(qlog=qlog),
+    )
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+    network.server.close()
+    [transmit] = network.server.datagrams_to_send(network.now)
+    interrupting = True
+
+    with pytest.raises(KeyboardInterrupt):
+        network.client_endpoint.receive_datagram(
+            transmit.data, transmit.local_addr, network.now, local_addr=CLIENT_ADDR
+        )
 
 
 def test_qlog_receives_json_seq_records(server_tls, client_tls):

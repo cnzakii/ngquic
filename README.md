@@ -136,20 +136,24 @@ for each new connection attempt and decides to `accept()`, `retry()`,
 
 Each `Connection` runs QUIC version 1 or 2 (RFC 9000, 9001, 9002, 9369) in the
 client or server role: bidirectional and unidirectional streams, unreliable
-datagrams (RFC 9221), 0-RTT resumption, key updates, connection migration, and
-output batched for GSO.
+datagrams (RFC 9221), 0-RTT resumption, key updates, connection migration, an
+early `PathDegrading` report when a path goes dark, and output batched for GSO.
 
 Pass `h3=H3Config()` to `connect()` or `accept()` and you get an
 `H3Connection` from `ngquic.h3` instead: requests, responses, trailers, and
 graceful shutdown with QPACK (RFC 9114, 9204), priorities (RFC 9218), extended
 CONNECT (RFC 9220), and HTTP datagrams (RFC 9297).
 
-Your application owns sockets, the event loop, GSO, GRO and ECN system calls,
-DNS, certificate storage, and application timeouts. Calls are synchronous and
-never block on I/O. Each `Transmit` is one UDP datagram unless you ask for
-`datagrams_to_send(gso=True)`, for a socket that sends with Linux
-`UDP_SEGMENT`: then it carries several of `segment_size` bytes. Split a GRO
-batch before `receive_datagram()`.
+Your application owns sockets, the event loop, DNS, certificate storage, and
+application timeouts. Calls are synchronous and never block on I/O. Each
+`Transmit` is one UDP datagram unless you ask for `datagrams_to_send(gso=True)`,
+for a socket that sends with Linux `UDP_SEGMENT`: then it carries several of
+`segment_size` bytes. Split a GRO batch before `receive_datagram()`.
+
+On Linux and macOS, `ngquic.udp.UDPSocket` makes those system calls on a socket
+you own and wait on: segmented sends (GSO), batched and coalesced receives
+(`recvmmsg`, GRO), ECN and destination addresses. Its `receive_into(endpoint,
+now)` feeds an endpoint without a Python object per datagram.
 
 ## Running over UDP
 

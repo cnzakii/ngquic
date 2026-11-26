@@ -58,6 +58,15 @@ cdef class BaseConnection:
     cdef int _peer_verdict
     # Set when a hook closed the connection; _ccerr holds the error.
     cdef object _failure_reason
+    # PathDegrading: probe timeouts allowed, set on handshake confirmation
+    # (0 while off), when the data in flight began waiting for
+    # acknowledgment progress, and whether PathRecovered is due.
+    cdef uint64_t _degrading_ptos
+    cdef ng.ngtcp2_tstamp _waiting_since
+    cdef bint _degraded
+    # A callback failure while the endpoint delivered a datagram, raised by
+    # the next events().
+    cdef object _deferred_error
 
     # ---- construction
     @staticmethod
@@ -183,6 +192,8 @@ cdef class BaseConnection:
     cdef int _resume_handshake(self, double now) except -1
     cdef int _require_open(self) except -1
     cdef _Stream _existing(self, int64_t stream_id)
+    cdef uint64_t _in_flight(self) noexcept
+    cdef uint64_t _degrading_deadline(self) noexcept
 
 
 cdef object _native_error(int rv)
