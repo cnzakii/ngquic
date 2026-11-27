@@ -85,7 +85,7 @@ cdef class BaseConnection:
             settings.token = <const uint8_t *>PyBytes_AS_STRING(token_bytes)
             settings.tokenlen = len(token_bytes)
         _to_sockaddr(self._initial_remote, &remote, &path.remote.addrlen)
-        _to_sockaddr(self._initial_local, &local, &path.local.addrlen)
+        _to_client_local(self._initial_local, &local, &path.local.addrlen)
         path.remote.addr = &remote.sa
         path.local.addr = &local.sa
         path.user_data = NULL
@@ -143,15 +143,18 @@ cdef class BaseConnection:
         cdef uint32_t offered[_MAX_VERSIONS]
         cdef size_t count = 0
         cdef uint32_t chosen
+        cdef size_t i
 
         # React to Version Negotiation once (RFC 9368 section 2.4).
         if self._offered_versions is None or self._version_retried:
             return False
         # Only the ones this endpoint prefers can be chosen, however many
         # unknown versions the server listed first.
-        preferred = [
-            self._endpoint._preferred[i] for i in range(self._endpoint._preferred_len)
-        ]
+        # Loops, not comprehensions: Cython 3.3 frees a comprehension's item
+        # twice when appending it fails.
+        preferred = []
+        for i in range(self._endpoint._preferred_len):
+            preferred.append(self._endpoint._preferred[i])
         for value in self._offered_versions:
             if value in preferred and count < _MAX_VERSIONS:
                 offered[count] = value
@@ -161,15 +164,20 @@ cdef class BaseConnection:
         )
         if chosen == 0:
             return False
-        self._endpoint._unregister(self)
-        self._release()
-        self._stop_sending_streams()
-        if self._streams:
-            self._streams.clear()
-            self._events.append(EarlyDataRejected.__new__(EarlyDataRejected))
-        self._offered_versions = None
-        self._version_retried = True
-        self._start_client(ts, chosen, None, None)
+        try:
+            self._endpoint._unregister(self)
+            self._release()
+            self._stop_sending_streams()
+            if self._streams:
+                self._streams.clear()
+                self._events.append(EarlyDataRejected.__new__(EarlyDataRejected))
+            self._offered_versions = None
+            self._version_retried = True
+            self._start_client(ts, chosen, None, None)
+        except BaseException:
+            # Partly released: nothing is left to drive.
+            self._finish()
+            raise
         return True
 
     @staticmethod
@@ -444,14 +452,16 @@ cdef class BaseConnection:
         self._datagram_queue = <Py_ssize_t>_uint(
             transport.max_datagram_queue, "max_datagram_queue", 1 << 20,
         )
+        _limit(transport.path_degrading_ptos, "path_degrading_ptos", 0xFFFF)
         return transport
 
     cdef int _pmtud_probes(self, object probes, ng.ngtcp2_settings *settings) except -1:
         # ngtcp2 copies the array while creating the connection.
-        values = [
-            _uint(probe, "pmtud_probes", ng.NGTCP2_MAX_TX_UDP_PAYLOAD_SIZE)
-            for probe in probes
-        ]
+        values = []
+        for probe in probes:
+            values.append(
+                _uint(probe, "pmtud_probes", ng.NGTCP2_MAX_TX_UDP_PAYLOAD_SIZE)
+            )
         if not values or any(
             value <= ng.NGTCP2_MAX_UDP_PAYLOAD_SIZE
             or value > settings.max_tx_udp_payload_size
@@ -523,7 +533,16 @@ cdef class BaseConnection:
 
         Returns:
             Events in protocol order.
+
+        Raises:
+            Exception: Once, what failed while the endpoint delivered a
+                datagram to this connection: ``InternalError`` when a
+                protocol callback failed, which dropped the connection.
         """
+        error = self._deferred_error
+        if error is not None:
+            self._deferred_error = None
+            raise error
         result = self._events
         self._events = []
         return result
@@ -555,6 +574,7 @@ cdef class BaseConnection:
         cdef ng.ngtcp2_ssize written
         cdef Py_ssize_t sent
         cdef list result
+        cdef bint idle
 
         if max_datagrams < 1:
             raise ValueError("max_datagrams must be positive")
@@ -566,6 +586,8 @@ cdef class BaseConnection:
         if self._state >= _CLOSING:
             return result
 
+        # Data sent after nothing was in flight starts waiting now.
+        idle = self._degrading_ptos != 0 and self._in_flight() == 0
         payload = ng.ngtcp2_conn_get_path_max_tx_udp_payload_size2(self._conn)
         # A PMTUD probe is larger than the path's current payload size.
         probe = ng.ngtcp2_conn_get_max_tx_udp_payload_size2(self._conn)
@@ -621,6 +643,8 @@ cdef class BaseConnection:
             finally:
                 Py_DECREF(buffer)
         ng.ngtcp2_conn_update_pkt_tx_time(self._conn, ts)
+        if idle and self._in_flight():
+            self._waiting_since = ts
         return result
 
     def get_timer(self):
@@ -637,7 +661,7 @@ cdef class BaseConnection:
             if self._deadline == _NO_EXPIRY:
                 return _deadline(ng.ngtcp2_conn_get_timestamp(self._conn))
             return _deadline(self._deadline)
-        expiry = ng.ngtcp2_conn_get_expiry2(self._conn)
+        expiry = min(ng.ngtcp2_conn_get_expiry2(self._conn), self._degrading_deadline())
         if expiry == _NO_EXPIRY:
             return None
         return _deadline(expiry)
@@ -667,6 +691,9 @@ cdef class BaseConnection:
         self._raise_callback_error()
         if rv != 0:
             self._handle_error(rv, ts)
+        elif self._degrading_deadline() <= ts:
+            self._degraded = True
+            self._events.append(PathDegrading.__new__(PathDegrading))
 
     # ---- control
 
@@ -712,8 +739,12 @@ cdef class BaseConnection:
     def migrate(self, local_addr, double now, *, bint validate=True):
         """Move a client connection to a new local address.
 
+        Datagrams the new socket receives are then passed with its address
+        as ``local_addr``.
+
         Args:
-            local_addr: New local address; the remote address is unchanged.
+            local_addr: New local address, a specific one with its port;
+                the remote address is unchanged.
             now: Current monotonic time in seconds.
             validate: Whether to validate the new path before using it.
 
@@ -721,7 +752,8 @@ cdef class BaseConnection:
             ConnectionStateError: If migration is not possible now: before
                 the handshake is confirmed, when the peer disabled active
                 migration, or without a spare connection ID.
-            ValueError: If ``local_addr`` is the current local address.
+            ValueError: If ``local_addr`` is the current local address, an
+                unspecified one such as ``0.0.0.0``, or names no port.
         """
         cdef ng.ngtcp2_tstamp ts = self._clock(now)
         cdef ng.ngtcp2_sockaddr_union local
@@ -733,7 +765,7 @@ cdef class BaseConnection:
         if not self.is_client:
             raise ConnectionStateError("only clients migrate")
         current = ng.ngtcp2_conn_get_path2(self._conn)
-        _to_sockaddr(local_addr, &local, &path.local.addrlen)
+        _to_client_local(local_addr, &local, &path.local.addrlen)
         path.local.addr = &local.sa
         path.remote = current.remote
         path.user_data = NULL
@@ -1216,12 +1248,23 @@ cdef class BaseConnection:
         uint8_t ecn, ng.ngtcp2_tstamp ts,
     ) except? -1:
         cdef ng.ngtcp2_pkt_info info
+        cdef bint watching = self._degrading_ptos != 0
+        cdef uint64_t in_flight = 0
         cdef int rv
 
         info.ecn = ecn
         ts = max(ts, ng.ngtcp2_conn_get_timestamp(self._conn))
+        if watching:
+            in_flight = self._in_flight()
         rv = ng.ngtcp2_conn_read_pkt(self._conn, path, &info, packet, length, ts)
         self._raise_callback_error()
+        # Reading sends nothing: less in flight means the peer acknowledged
+        # data or validated a new path, so it hears this side.
+        if watching and self._in_flight() < in_flight:
+            self._waiting_since = ts
+            if self._degraded:
+                self._degraded = False
+                self._events.append(PathRecovered.__new__(PathRecovered))
         return rv
 
     cdef int _receive(
@@ -1396,10 +1439,9 @@ cdef class BaseConnection:
         self._stop_sending_all()
         self._streams.clear()
         # ngtcp2_conn_del() wrote the final qlog notice while callbacks were
-        # already off; deliver it here, outside garbage collection, once
-        # nothing is left to release if the writer raises.
+        # already off; deliver it here, outside garbage collection.
         if self._qlog is not None:
-            self._qlog(b"", True)
+            _final_qlog_notice(self._qlog)
 
     cdef void _release(self):
         cdef ng.ngtcp2_conn *conn = self._conn
@@ -1453,10 +1495,14 @@ cdef class BaseConnection:
     cdef int _raise_callback_error(self) except -1:
         """Raise an exception a callback deferred across the C boundary."""
         error = self._callback_error
+
         if error is None:
             return 0
         self._callback_error = None
         self._finish()
+        if not isinstance(error, Exception):
+            # KeyboardInterrupt and SystemExit stop the program, not one connection.
+            raise error
         raise InternalError(
             "a protocol callback failed; the connection was dropped"
         ) from error
@@ -1483,6 +1529,21 @@ cdef class BaseConnection:
         if stream is None:
             raise StreamStateError(f"stream {stream_id} does not exist")
         return <_Stream>stream
+
+    cdef uint64_t _in_flight(self) noexcept:
+        cdef ng.ngtcp2_conn_info info
+
+        ng.ngtcp2_conn_get_conn_info2(self._conn, &info)
+        return info.bytes_in_flight
+
+    cdef uint64_t _degrading_deadline(self) noexcept:
+        """When waiting data makes the path degrading, as Google quiche times it."""
+        if self._degrading_ptos == 0 or self._degraded or self._in_flight() == 0:
+            return _NO_EXPIRY
+        return (
+            self._waiting_since
+            + self._degrading_ptos * ng.ngtcp2_conn_get_pto2(self._conn)
+        )
 
 
 _STATES = tuple(ConnectionState)

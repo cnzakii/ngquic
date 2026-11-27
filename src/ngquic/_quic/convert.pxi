@@ -1,4 +1,4 @@
-cdef inline ng.ngtcp2_tstamp _timestamp(double now) except? 0:
+cdef ng.ngtcp2_tstamp _timestamp(double now) except? 0:
     """Convert a monotonic time in seconds to an ngtcp2 timestamp."""
     if not (0.0 <= now < 1.8e10):
         raise ValueError("now must be a non-negative monotonic time in seconds")
@@ -136,6 +136,37 @@ cdef object _from_sockaddr(const ng.ngtcp2_sockaddr *address):
         ng.ntohl(v6.sin6_flowinfo),
         v6.sin6_scope_id,
     )
+
+
+cdef int _to_local_sockaddr(
+    object address, ng.ngtcp2_sockaddr_union *out, ng.ngtcp2_socklen *outlen,
+) except -1:
+    """Convert a local address, which must name a port."""
+    _to_sockaddr(address, out, outlen)
+    if (
+        out.in4.sin_port if out.sa.sa_family == ng.AF_INET else out.in6.sin6_port
+    ) == 0:
+        raise ValueError(
+            "local_addr must name a port: pass the bound socket's address, "
+            "such as sock.getsockname()"
+        )
+
+
+cdef int _to_client_local(
+    object address, ng.ngtcp2_sockaddr_union *out, ng.ngtcp2_socklen *outlen,
+) except -1:
+    """Convert a client path's local address, which must be a specific one.
+
+    ngtcp2 tells a client's paths apart by their local addresses, which
+    datagrams arriving on a socket bound to any address report as the
+    interface's instead.
+    """
+    _to_local_sockaddr(address, out, outlen)
+    if ng.glue_unspecified(&out.sa):
+        raise ValueError(
+            "a client's local_addr must be a specific address, such as "
+            "sock.getsockname() after sock.connect()"
+        )
 
 
 cdef class _AddressCache:

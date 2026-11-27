@@ -161,13 +161,11 @@ def test_reno_halves_the_congestion_window_when_a_packet_is_lost(network):
     network.server_endpoint.receive_datagram(fourth.data, CLIENT_ADDR, network.now)
     network.run(lambda: client.stats.packets_lost > before.packets_lost)
 
+    # One congestion event halves the window once, however many packets it
+    # declares lost: ngtcp2 skips packet numbers at random, so the packet
+    # threshold can take the second datagram's packet as well.
     after = client.stats
-    assert (
-        after.packets_lost - before.packets_lost,
-        after.congestion_window,
-        after.slow_start_threshold,
-    ) == (
-        1,
+    assert (after.congestion_window, after.slow_start_threshold) == (
         before.congestion_window // 2,
         before.congestion_window // 2,
     )

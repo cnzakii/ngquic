@@ -9,6 +9,7 @@
 #  include <netinet/in.h>
 #  include <sys/socket.h>
 #endif
+#include <string.h>
 
 #include <ngtcp2/ngtcp2.h>
 #include <ngtcp2/ngtcp2_crypto.h>
@@ -27,6 +28,33 @@
 #else
 #  define glue_random_bytes(dest, length) ((void)RAND_bytes((dest), (length)))
 #endif
+
+/* BSD sockaddrs carry their length, which the kernel fills and the
+   conversion from tuples leaves 0. Retry tokens bind an address's bytes,
+   so native addresses keep it 0 everywhere. */
+static inline void glue_clear_sa_len(ngtcp2_sockaddr *address) {
+#ifdef SIN6_LEN
+  address->sa_len = 0;
+#else
+  (void)address;
+#endif
+}
+
+/* Whether address is 0.0.0.0, :: or ::ffff:0.0.0.0, which a socket binds
+   to but no datagram is sent from. */
+static inline int glue_unspecified(const ngtcp2_sockaddr *address) {
+  static const unsigned char any[16] = {0};
+  static const unsigned char mapped_any[16] = {0, 0, 0, 0, 0, 0, 0, 0,
+                                               0, 0, 0xff, 0xff, 0, 0, 0, 0};
+  const void *host;
+
+  if (address->sa_family == AF_INET) {
+    return ((const struct sockaddr_in *)address)->sin_addr.s_addr ==
+           INADDR_ANY;
+  }
+  host = &((const struct sockaddr_in6 *)address)->sin6_addr;
+  return memcmp(host, any, 16) == 0 || memcmp(host, mapped_any, 16) == 0;
+}
 
 /* The crypto helper callbacks are assigned in C because their function
    pointer types are long and only checked by the C compiler. */

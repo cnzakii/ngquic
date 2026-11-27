@@ -671,7 +671,7 @@ cdef class H3Connection(BaseConnection):
         return written
 
     cdef void _finish(self):
-        # Before the base raises any qlog writer error; nghttp3 points at none.
+        # nghttp3 points at none of these.
         self._receiving.clear()
         self._field_section_size.clear()
         self._finished.clear()

@@ -78,6 +78,12 @@ cdef class PathValidated(Event):
     cdef readonly bint preferred_address
     cdef readonly bint success
 
+cdef class PathDegrading(Event):
+    pass
+
+cdef class PathRecovered(Event):
+    pass
+
 cdef class ConnectionTerminated(Event):
     cdef readonly object reason
     cdef readonly object error_code

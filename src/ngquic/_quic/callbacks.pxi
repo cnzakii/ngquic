@@ -34,6 +34,16 @@ cdef void _write_qlog(
         connection._callback_error = error
 
 
+@cython.unraisable_tracebacks(False)
+cdef void _final_qlog_notice(object writer) noexcept:
+    """Deliver the final qlog notice of a released connection.
+
+    Nothing is left to drop and no call can fail for it, so a failing writer
+    is reported as Python reports what it cannot raise: sys.unraisablehook.
+    """
+    writer(b"", True)
+
+
 cdef ng.ngtcp2_ssize _write_pkt(
     ng.ngtcp2_conn *conn, ng.ngtcp2_path *path, ng.ngtcp2_pkt_info *info,
     uint8_t *dest, size_t destlen, ng.ngtcp2_tstamp ts, void *user_data,
@@ -141,9 +151,16 @@ cdef int _handshake_completed(ng.ngtcp2_conn *conn, void *user_data) noexcept:
 
 cdef int _handshake_confirmed(ng.ngtcp2_conn *conn, void *user_data) noexcept:
     cdef BaseConnection connection = <BaseConnection>user_data
+    cdef object ptos
 
     try:
         connection._events.append(HandshakeConfirmed.__new__(HandshakeConfirmed))
+        # Clients only, as in Google quiche; before confirmation the handshake
+        # timeout covers a dead path.
+        ptos = connection._transport.path_degrading_ptos
+        if ptos is not None and connection.is_client:
+            connection._degrading_ptos = ptos
+            connection._waiting_since = ng.ngtcp2_conn_get_timestamp(conn)
     except BaseException as error:
         return _fail(connection, error)
     return 0
@@ -494,9 +511,15 @@ cdef int _recv_version_negotiation(
     size_t count, void *user_data,
 ) noexcept:
     cdef BaseConnection connection = <BaseConnection>user_data
+    cdef size_t i
 
     try:
-        connection._offered_versions = [versions[i] for i in range(count)]
+        # Not a comprehension: Cython 3.3 frees a comprehension's item twice
+        # when appending it fails.
+        offered = []
+        for i in range(count):
+            offered.append(versions[i])
+        connection._offered_versions = offered
     except BaseException as error:
         return _fail(connection, error)
     return 0

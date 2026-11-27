@@ -194,13 +194,15 @@ precision = 2
 exclude_lines = [
     '^\s*cp?def\b[^=(]*\(',
     '^\s*def \w+\(',
-    '^\s*@(?:staticmethod|property|\w+\.setter)\s*$',
+    '^\s*@(?:staticmethod|property|\w+\.setter|cython\.\w+\(.*\))\s*$',
     '^\s*__match_args__ = ',
     '^_[A-Z_]+(?:\.\w+)? = ',
     # Callbacks park any exception for the caller; only a bug or MemoryError
     # gets there, which tests cannot trigger.
     '^\s*except BaseException as error:\s*$',
     '^\s*return _(?:h3_)?fail\(connection, error\)\s*$',
+    # Cython traces no line while the GIL is released.
+    '^\s*with nogil:\s*$',
 ]
 # Measured 96.10%; most of the rest are native failures (allocation, internal
 # errors) that need fault injection to reach.

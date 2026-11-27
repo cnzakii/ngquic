@@ -289,7 +289,8 @@ jobs:
         run: |
           build="$PWD/$(dirname "$(find build -name h3__core.c -print -quit)")"
           for link in _core.c:_core.c _core.c:_quic/_core.c events.c:events.c \
-            h3__core.c:h3/_core.c h3__core.c:h3/_h3/_core.c h3_events.c:h3/events.c
+            h3__core.c:h3/_core.c h3__core.c:h3/_h3/_core.c h3_events.c:h3/events.c \
+            udp.c:udp.c
           do
             ln -s "$build/${link%%:*}" "src/ngquic/${link#*:}"
           done

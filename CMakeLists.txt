@@ -68,6 +68,10 @@ endif()
 
 # Target names are flat; the module path decides the file and its package.
 set(_modules _core events h3/_core h3/events)
+# Batched UDP system calls, written for the Linux and macOS socket APIs.
+if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin)$")
+  list(APPEND _modules udp)
+endif()
 foreach(module IN LISTS _modules)
   string(REPLACE "/" "_" target "${module}")
   get_filename_component(name "${module}" NAME)
@@ -110,6 +114,18 @@ target_include_directories(
           # nghttp3's static target exports no build-tree include directories.
           vendor/nghttp3/lib/includes
           "${CMAKE_CURRENT_BINARY_DIR}/vendor/nghttp3/lib/includes")
+if(TARGET udp)
+  # udp cimports ngquic._core and uses ngtcp2's address types.
+  target_include_directories(
+    udp
+    PRIVATE $<TARGET_PROPERTY:ngtcp2_static,INTERFACE_INCLUDE_DIRECTORIES>
+            $<TARGET_PROPERTY:ngtcp2_crypto_boringssl_static,INTERFACE_INCLUDE_DIRECTORIES>
+            "${_tls_include}")
+  if(APPLE)
+    # RFC 3542 names (IPV6_RECVPKTINFO, in6_pktinfo), before any header.
+    target_compile_definitions(udp PRIVATE __APPLE_USE_RFC_3542)
+  endif()
+endif()
 # Export only the module init functions: CPython's _ssl and cryptography load
 # their own OpenSSL into the same process.
 foreach(target _core h3__core)

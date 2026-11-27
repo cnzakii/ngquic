@@ -416,6 +416,8 @@ cdef extern from "glue.h":
 
     void glue_set_crypto_callbacks(ngtcp2_callbacks *cb, int server)
     void glue_random_bytes(uint8_t *dest, size_t length)
+    void glue_clear_sa_len(ngtcp2_sockaddr *address)
+    bint glue_unspecified(const ngtcp2_sockaddr *address)
 
     # Error codes and flags.
     int NGTCP2_ERR_INVALID_ARGUMENT

@@ -3,7 +3,8 @@
 The server answers HTTP/0.9 (``hq-interop``) or HTTP/3 GET requests from a
 directory; the client downloads URLs into one. The interop runner selects the
 behavior with ``TESTCASE`` and exits 127 for test cases this peer does not
-implement (https://github.com/quic-interop/quic-interop-runner).
+implement (https://github.com/quic-interop/quic-interop-runner). Datagrams go
+through ``ngquic.udp``, so the runner also covers GSO, GRO and ECN.
 
     python peer.py server --port 4433 --cert cert.pem --key key.pem --h3
     python peer.py client --h3 --output downloads https://localhost:4433/file
@@ -11,6 +12,7 @@ implement (https://github.com/quic-interop/quic-interop-runner).
 
 import argparse
 import asyncio
+import collections
 import itertools
 import os
 import socket
@@ -40,6 +42,7 @@ from ngquic import (
     Version,
 )
 from ngquic.h3 import DataReceived, H3Config, H3Connection, RequestReceived
+from ngquic.udp import UDPSocket
 
 UNSUPPORTED = 127
 # The endpoint test cases the runner passes in TESTCASE that this peer runs.
@@ -56,34 +59,45 @@ SUPPORTED = {
     "keyupdate",
     "multiconnect",
     "v2",
+    "ecn",
 }
 QLOG_FILES = itertools.count()
 
+# Receives each event of its connection, or the exception that ended it.
 Handler = Callable[[Any, object], None]
 
 
-class Peer(asyncio.DatagramProtocol):
-    """Drive one endpoint and its connections from an asyncio UDP socket."""
+class Peer:
+    """Drive one endpoint and its connections from a UDP socket in asyncio."""
 
-    def __init__(self) -> None:
+    def __init__(self, sock: socket.socket) -> None:
         self.loop = asyncio.get_running_loop()
         self.endpoint: Endpoint | None = None
         self.handlers: dict[BaseConnection, Handler] = {}
         self.on_incoming: Callable[[Incoming], None] = lambda incoming: None
         self.timer: asyncio.TimerHandle | None = None
-        self.transport: asyncio.DatagramTransport | None = None
-
-    def connection_made(self, transport) -> None:
-        self.transport = transport
+        self.sock = sock
+        self.io = UDPSocket(sock)
+        # Transmits waiting for the socket to become writable.
+        self.unsent: collections.deque[Transmit] = collections.deque()
+        self.loop.add_reader(self.io, self.readable)
 
     def add(self, connection: BaseConnection, handler: Handler) -> None:
         self.handlers[connection] = handler
 
-    def datagram_received(self, data: bytes, addr) -> None:
+    def readable(self) -> None:
         assert self.endpoint is not None
-        result = self.endpoint.receive_datagram(data, addr, self.loop.time())
-        if isinstance(result, Incoming):
-            self.on_incoming(result)
+        try:
+            ready = self.io.receive_into(self.endpoint, self.loop.time())
+        except OSError:
+            # An ICMP error, as asyncio's error_received() would see it.
+            return
+        for item in ready:
+            if isinstance(item, Incoming):
+                try:
+                    self.on_incoming(item)
+                except Exception as error:
+                    print(f"{item!r} not accepted: {error!r}", file=sys.stderr)
         self.flush()
 
     def flush(self) -> None:
@@ -92,10 +106,13 @@ class Peer(asyncio.DatagramProtocol):
         for transmit in self.endpoint.datagrams_to_send():
             self.send(transmit)
         for connection, handler in list(self.handlers.items()):
-            for event in connection.events():
-                handler(connection, event)
-            for transmit in connection.datagrams_to_send(now):
-                self.send(transmit)
+            try:
+                for event in connection.events():
+                    handler(connection, event)
+                for transmit in connection.datagrams_to_send(now, gso=self.io.gso):
+                    self.send(transmit)
+            except Exception as error:
+                self.dropped(connection, error)
             if connection.state == ConnectionState.CLOSED:
                 del self.handlers[connection]
         if self.timer is not None:
@@ -112,12 +129,38 @@ class Peer(asyncio.DatagramProtocol):
         for connection in list(self.handlers):
             timer = connection.get_timer()
             if timer is not None and timer <= now:
-                connection.handle_timer(now)
+                try:
+                    connection.handle_timer(now)
+                except Exception as error:
+                    self.dropped(connection, error)
         self.flush()
 
+    def dropped(self, connection: BaseConnection, error: Exception) -> None:
+        """Serving ``connection`` failed: close it, and let the others go on."""
+        print(f"{connection!r} failed: {error!r}", file=sys.stderr)
+        self.handlers[connection](connection, error)
+        # Flushed until closed, with no more events for the handler.
+        self.handlers[connection] = lambda connection, event: None
+        if connection.state < ConnectionState.CLOSING:
+            connection.close()
+
     def send(self, transmit: Transmit) -> None:
-        assert self.transport is not None
-        self.transport.sendto(transmit.data, transmit.remote_addr)
+        self.unsent.append(transmit)
+        if len(self.unsent) == 1:
+            self.writable()
+
+    def writable(self) -> None:
+        """Send what waits, in order, until the socket buffer fills."""
+        while self.unsent:
+            try:
+                self.io.send(self.unsent[0])
+            except BlockingIOError:
+                self.loop.add_writer(self.io, self.writable)
+                return
+            except OSError:
+                pass  # Lost, which QUIC recovers from.
+            self.unsent.popleft()
+        self.loop.remove_writer(self.io)
 
 
 def transport_config(role: Role, testcase: str) -> TransportConfig:
@@ -151,6 +194,9 @@ def transport_config(role: Role, testcase: str) -> TransportConfig:
     if testcase == "zerortt":
         # --no-pmtud: probes would count against zerortt's 1-RTT byte budget.
         settings["pmtud"] = False
+    elif testcase == "ecn":
+        # --no-pmtud, as ngtcp2's endpoint runs ecn.
+        settings["pmtud"] = False
     elif testcase == "multiconnect":
         settings.update(idle_timeout=180.0, handshake_timeout=180.0)
     return TransportConfig(**settings)
@@ -176,13 +222,11 @@ def tls_context(role: Role, alpn: str, args) -> TLSContext:
     return tls
 
 
-async def open_peer(host: str, port: int) -> tuple[Peer, Any]:
-    loop = asyncio.get_running_loop()
+def open_peer(host: str, port: int) -> tuple[Peer, Any]:
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
-    transport, peer = await loop.create_datagram_endpoint(
-        Peer, local_addr=(host, port), family=family
-    )
-    return peer, transport.get_extra_info("sockname")
+    sock = socket.socket(family, socket.SOCK_DGRAM)
+    sock.bind((host, port))
+    return Peer(sock), sock.getsockname()
 
 
 # ---- server
@@ -198,7 +242,7 @@ async def serve(args) -> None:
     versions = (
         (Version.V2, Version.V1) if testcase == "v2" else (Version.V1, Version.V2)
     )
-    peer, local = await open_peer(args.host, args.port)
+    peer, local = open_peer(args.host, args.port)
     peer.endpoint = Endpoint(local, EndpointConfig(preferred_versions=versions))
     tls = tls_context(Role.SERVER, "h3" if h3 else "hq-interop", args)
 
@@ -349,7 +393,7 @@ async def fetch(
             received.setdefault(event.stream_id, []).append(event.data)
             if event.end_stream:
                 complete(event.stream_id)
-        elif isinstance(event, ConnectionTerminated):
+        elif isinstance(event, (ConnectionTerminated, Exception)):
             done.set()
 
     peer.add(connection, on_event)
@@ -369,8 +413,19 @@ async def download(args) -> None:
     args.testcase = testcase
     urls = args.urls or os.environ.get("REQUESTS", "").split()
     h3 = args.h3 or testcase == "http3"
-    ipv6 = ":" in str(socket.getaddrinfo(urlsplit(urls[0]).hostname, 443)[0][4][0])
-    peer, local = await open_peer("::" if ipv6 else "0.0.0.0", 0)
+    first = urlsplit(urls[0])
+    family, _, _, _, remote = socket.getaddrinfo(
+        first.hostname, first.port or 443, type=socket.SOCK_DGRAM
+    )[0]
+    # A client names a specific local address. Take the one the route to the
+    # server uses, as ngtcp2's client does, and bind to it instead of
+    # connecting: the server's preferred address is another destination.
+    with socket.socket(family, socket.SOCK_DGRAM) as route:
+        route.connect(remote)
+        host = route.getsockname()[0]
+    sock = socket.socket(family, socket.SOCK_DGRAM)
+    sock.bind((host, 0))
+    peer, local = Peer(sock), sock.getsockname()
     # -v 0x1 always; --available-versions v2,v1 for v2.
     versions = (
         (Version.V2, Version.V1) if testcase == "v2" else (Version.V1, Version.V2)

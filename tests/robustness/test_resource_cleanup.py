@@ -50,7 +50,12 @@ def test_rejecting_early_data_releases_the_payload(network, h3_network, use_h3):
     assert sys.getrefcount(payload) == references
 
 
-def test_a_failing_final_qlog_callback_releases_send_buffers(server_tls, client_tls):
+def test_a_failing_final_qlog_callback_releases_send_buffers(
+    server_tls, client_tls, monkeypatch
+):
+    unraisable = []
+    monkeypatch.setattr(sys, "unraisablehook", unraisable.append)
+
     def qlog(data, final):
         if final:
             raise RuntimeError("qlog disk full")
@@ -61,8 +66,9 @@ def test_a_failing_final_qlog_callback_releases_send_buffers(server_tls, client_
     client.send_stream_data(client.open_stream(), b"unsent")
 
     client.close()
-    with pytest.raises(RuntimeError, match="qlog disk full"):
-        link.run(lambda: client.state is ConnectionState.CLOSED)
+    link.run(lambda: client.state is ConnectionState.CLOSED)
+
+    assert [type(hook.exc_value) for hook in unraisable] == [RuntimeError]
 
     assert client.queued_size() == 0
 

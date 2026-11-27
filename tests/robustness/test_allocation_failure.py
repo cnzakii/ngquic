@@ -46,6 +46,7 @@ def run_isolated(scenario: str) -> None:
         "connect",
         "server-first-flight",
         "client-first-flight",
+        "version-negotiation",
         "stream-send",
         "stream-write",
         "stream-read",
@@ -68,12 +69,16 @@ if __name__ == "__main__":
         Connection,
         ConnectionState,
         ConnectionTerminated,
+        Endpoint,
+        EndpointConfig,
         HandshakeConfirmed,
         Incoming,
         InternalError,
         Role,
+        SessionTicketReceived,
         StreamDataReceived,
         TLSContext,
+        Version,
     )
     from ngquic.h3 import H3Config, RequestReceived, ResponseReceived, SettingsReceived
 
@@ -135,6 +140,18 @@ if __name__ == "__main__":
             for offset in range(0, len(transmit.data), transmit.segment_size)
         ]
         return results[0]
+
+    def surfaced(network: Network) -> bool:
+        """Drain events; whether a delivery's callback failure surfaced there."""
+        try:
+            network._drain_events()
+        except InternalError as error:
+            # A failing callback drops its connection; events() raises.
+            assert isinstance(error.__cause__, MemoryError), error
+            return True
+        except MemoryError:
+            return True
+        return False
 
     def handshake(network: Network) -> Connection:
         client = network.connect()
@@ -207,11 +224,50 @@ if __name__ == "__main__":
             ),
             allocation,
         )
+        failed = surfaced(network) or failed
         network.run(
             lambda: network.events_of(client, HandshakeConfirmed) or ended(network)
         )
         assert network.events_of(client, HandshakeConfirmed) or ended(network)
         return failed or ended(network)
+
+    def check_version_negotiation(allocation: int) -> bool:
+        """A client restarting in the server's version, dropping 0-RTT streams."""
+        network = quic_network()
+        network.server_tls.early_data = True
+        first = handshake(network)
+        network.run(lambda: network.events_of(first, SessionTicketReceived))
+        ticket = network.events_of(first, SessionTicketReceived)[-1].ticket
+        network.server_endpoint = Endpoint(
+            network.server_addr, EndpointConfig(preferred_versions=(Version.V2,))
+        )
+        client = network.connect(session_ticket=ticket)
+        client.send_stream_data(client.open_stream(), b"early")
+        deliver(
+            network,
+            client.datagrams_to_send(network.now),
+            network.server_endpoint,
+            network.client_addr,
+        )
+        negotiation = network.server_endpoint.datagrams_to_send()
+        failed, _ = failing(
+            lambda: deliver(
+                network, negotiation, network.client_endpoint, network.server_addr
+            ),
+            allocation,
+        )
+        failed = surfaced(network) or failed
+        network.run(
+            lambda: (
+                network.events_of(client, HandshakeConfirmed)
+                or client.state == ConnectionState.CLOSED
+            )
+        )
+        assert (
+            network.events_of(client, HandshakeConfirmed)
+            or client.state == ConnectionState.CLOSED
+        )
+        return failed or client.state == ConnectionState.CLOSED
 
     def transferred(network: Network, client, stream_id: int) -> bool:
         received = b"".join(
@@ -259,6 +315,7 @@ if __name__ == "__main__":
             lambda: deliver(network, out, network.server_endpoint, network.client_addr),
             allocation,
         )
+        failed = surfaced(network) or failed
         network.run()
         assert transferred(network, client, stream_id)
         return failed or ended(network)
@@ -336,6 +393,7 @@ if __name__ == "__main__":
             lambda: deliver(network, out, network.server_endpoint, network.client_addr),
             allocation,
         )
+        failed = surfaced(network) or failed
         network.run()
         assert answered(network, client, stream_id)
         return failed or ended(network)
@@ -344,6 +402,7 @@ if __name__ == "__main__":
         "connect": check_connect,
         "server-first-flight": check_server_first_flight,
         "client-first-flight": check_client_first_flight,
+        "version-negotiation": check_version_negotiation,
         "stream-send": check_stream_send,
         "stream-write": check_stream_write,
         "stream-read": check_stream_read,

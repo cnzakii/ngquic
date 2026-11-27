@@ -1,5 +1,6 @@
 # cython: embedsignature=True, freethreading_compatible=True, language_level=3
 
+cimport cython
 from cpython.buffer cimport (
     PyBUF_CONTIG_RO,
     Py_buffer,
@@ -48,6 +49,8 @@ from .events cimport (
     HandshakeCompleted,
     HandshakeConfirmed,
     NewTokenReceived,
+    PathDegrading,
+    PathRecovered,
     PathValidated,
     PathValidationStarted,
     PeerCertificateReceived,
@@ -91,9 +94,10 @@ cdef extern from "Python.h":
 
 
 DEF _MAX_VECS = 16
-# Linux UDP_SEGMENT accepts at most 64 segments in one 64 KiB datagram train.
+# Linux UDP_SEGMENT accepts at most 64 segments (older kernels) in one send,
+# whose payload is at most an IPv4 UDP datagram's (65535 - 20 - 8).
 DEF _MAX_GSO_SEGMENTS = 64
-DEF _MAX_GSO_BYTES = 65535
+DEF _MAX_GSO_BYTES = 65507
 # Bytes a DATAGRAM frame and its 1-RTT packet need beside the payload: short
 # header with the longest connection ID and packet number, AEAD tag, frame
 # type and a 4-byte length.
