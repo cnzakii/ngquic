@@ -74,6 +74,37 @@ jobs:
           && '--group interop' || '' }}
       - run: uv run --no-sync pytest
 
+  # The musllinux wheels' platform, in Alpine.
+  musllinux:
+    name: Python dev on musllinux ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-24.04
+          - arch: aarch64
+            os: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      # The runner cannot execute JavaScript actions inside Alpine containers
+      # on arm64, so the tests run through docker run instead of a job
+      # container.
+      - name: Test in Alpine
+        run: |
+          docker run --rm --volume "$PWD:/work" --workdir /work \
+            --env UV_PYTHON_DOWNLOADS=never \
+            "ghcr.io/astral-sh/uv:python$(cat .python-version)-alpine" sh -euxc '
+              apk add --no-cache build-base cmake linux-headers
+              uv sync --locked --no-dev --group test --group interop
+              uv run --no-sync pytest
+            '
+
   sanitizers:
     name: AddressSanitizer and UBSan
     runs-on: ubuntu-24.04
@@ -313,7 +344,7 @@ jobs:
   required:
     name: Required checks
     if: always()
-    needs: [lint, test, sanitizers, h3spec, package, coverage]
+    needs: [lint, test, musllinux, sanitizers, h3spec, package, coverage]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

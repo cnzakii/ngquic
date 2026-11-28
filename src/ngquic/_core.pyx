@@ -125,12 +125,10 @@ _ERROR_CODES = {code.value: code for code in ErrorCode}
 
 
 def ngtcp2_version():
-    """Return the version of the bundled ngtcp2 library."""
     return ng.ngtcp2_version(0).version_str.decode()
 
 
 def tls_version():
-    """Return the version of the bundled TLS library."""
     return ng.OpenSSL_version(0).decode()
 
 

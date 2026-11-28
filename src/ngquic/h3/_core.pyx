@@ -1,9 +1,4 @@
 # cython: embedsignature=True, freethreading_compatible=True, language_level=3
-"""HTTP/3 connections: nghttp3 driven by BaseConnection's stream protocol hooks.
-
-Only nghttp3 is linked here; QUIC operations go through BaseConnection
-methods because ngtcp2 and AWS-LC live inside ngquic._core.
-"""
 
 from cpython.buffer cimport (
     PyBUF_CONTIG_RO,
@@ -72,18 +67,10 @@ cdef uint64_t _MAX_QUARTER_STREAM_ID = (<uint64_t>1 << 60) - 1
 
 
 def nghttp3_version():
-    """Return the version of the bundled nghttp3 library."""
     return nh.nghttp3_version(0).version_str.decode()
 
 
 def parse_priority(field_value):
-    """Parse a Priority field value (RFC 9218), such as ``b"u=1, i"``.
-
-    Parameters the value leaves out keep their defaults.
-
-    Raises:
-        ValueError: If the value is not a valid Priority field.
-    """
     cdef bytes value = _owned_bytes(field_value)
     cdef object default = Priority()
     cdef nh.nghttp3_pri pri

@@ -5,16 +5,6 @@ cdef class _Body(_Stream):
 
 
 cdef class H3Connection(BaseConnection):
-    """A QUIC connection speaking HTTP/3 (RFC 9114) through nghttp3.
-
-    Created by ``Endpoint.connect(..., h3=H3Config())`` or
-    ``Incoming.accept(..., h3=H3Config())``; drive it like any connection.
-    nghttp3 owns framing, QPACK, the control streams and stream scheduling;
-    request bodies are queued here without copying ``bytes`` and released
-    once acknowledged. Requests and responses report through ``events()``
-    in the same queue as connection events.
-    """
-
     # Fields and C methods are declared in connection.pxd.
 
     def __cinit__(self):
@@ -34,30 +24,6 @@ cdef class H3Connection(BaseConnection):
     # ---- requests and responses
 
     def send_request(self, headers, *, bint end_stream=False):
-        """Open a request stream and send its header section.
-
-        Before the handshake completes this needs a resumed session that
-        allows 0-RTT; otherwise wait for ``HandshakeCompleted``.
-
-        Args:
-            headers: ``(name, value)`` byte pairs, pseudo headers first;
-                names are sent in lowercase.
-            end_stream: Whether the request has no body; otherwise send it
-                with ``send_data()`` and finish with ``end_stream()`` or
-                ``send_trailers()``.
-
-        Returns:
-            The request stream ID.
-
-        Raises:
-            StreamLimitError: If the server allows no more requests yet;
-                ``StreamsAvailable`` reports new credit.
-            ConnectionStateError: If the server is shutting down, the
-                connection is closing or closed, or the request is an
-                extended CONNECT the server has not enabled.
-            ValueError: If a header is invalid or the request is malformed
-                (RFC 9114, section 4.3.1), as a server would find it.
-        """
         cdef list fields = _header_list(headers, _REQUEST)
         cdef _Body stream = _Body.__new__(_Body)
         cdef int64_t stream_id
@@ -103,30 +69,11 @@ cdef class H3Connection(BaseConnection):
 
     @property
     def bidi_streams_available(self):
-        """Requests the server lets this client send now.
-
-        0 on a server and once the server sent GOAWAY; ``StreamsAvailable``
-        reports when it grows.
-        """
         if self._conn == NULL or not self.is_client or self._goaway_received:
             return 0
         return self._bidi_streams_left()
 
     def send_response(self, stream_id, headers, *, bint end_stream=False):
-        """Send the final response header section on a request stream.
-
-        Args:
-            stream_id: Stream of a ``RequestReceived``.
-            headers: ``(name, value)`` byte pairs, ``:status`` first;
-                names are sent in lowercase.
-            end_stream: Whether the response has no body.
-
-        Raises:
-            StreamStateError: If the stream is not an open request or
-                already has a response.
-            ValueError: If a header is invalid, or ``:status`` is missing or
-                not a final status code.
-        """
         cdef int64_t sid = _request_stream_id(stream_id)
         cdef list fields = _header_list(headers, _RESPONSE)
         cdef _Body stream = _Body.__new__(_Body)
@@ -151,13 +98,6 @@ cdef class H3Connection(BaseConnection):
             raise _h3_error(rv)
 
     def send_informational_response(self, stream_id, headers):
-        """Send an interim 1xx response before the final one.
-
-        Raises:
-            StreamStateError: If the stream cannot take a response now.
-            ValueError: If a header is invalid, or ``:status`` is missing or
-                not 1xx; HTTP/3 has no 101.
-        """
         cdef int64_t sid = _request_stream_id(stream_id)
         cdef list fields = _header_list(headers, _INFORMATIONAL)
         cdef int rv
@@ -173,19 +113,6 @@ cdef class H3Connection(BaseConnection):
             raise _h3_error(rv)
 
     def send_data(self, stream_id, data, *, bint end_stream=False):
-        """Queue message body data.
-
-        ``bytes`` are held without copying until the peer acknowledges them;
-        other buffers are copied once.
-
-        Returns:
-            ``False`` once the stream holds more than
-            ``stream_write_buffer_high`` bytes; wait for ``StreamWritable``
-            before queuing more.
-
-        Raises:
-            StreamStateError: If the message has no body or finished.
-        """
         cdef _Body stream = self._body(_stream_id(stream_id))
         cdef bint writable = self._enqueue(stream, data, end_stream)
 
@@ -193,19 +120,12 @@ cdef class H3Connection(BaseConnection):
         return writable
 
     def end_stream(self, stream_id):
-        """Finish the message after its queued body."""
         cdef _Body stream = self._body(_stream_id(stream_id))
 
         stream.fin_queued = True
         nh.nghttp3_conn_resume_stream(self._h3, stream.stream_id)
 
     def send_trailers(self, stream_id, headers):
-        """Finish the message with a trailer section after its queued body.
-
-        Raises:
-            StreamStateError: If the message has no body or finished.
-            ValueError: If a header is invalid or a pseudo-header.
-        """
         # Headers first: iterating them runs caller code that may end the stream.
         cdef list fields = _header_list(headers, _TRAILERS)
         cdef _Body stream = self._body(_stream_id(stream_id))
@@ -218,12 +138,6 @@ cdef class H3Connection(BaseConnection):
         nh.nghttp3_conn_resume_stream(self._h3, stream.stream_id)
 
     def reset_stream(self, stream_id, error_code=H3ErrorCode.H3_REQUEST_CANCELLED):
-        """Abort a request in both directions (RFC 9114 4.1.1).
-
-        Raises:
-            ValueError: If ``stream_id`` is not a request stream ID; HTTP/3
-                closes the connection when a critical stream is reset.
-        """
         cdef int64_t sid = _request_stream_id(stream_id)
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
         cdef _Stream stream
@@ -238,11 +152,6 @@ cdef class H3Connection(BaseConnection):
             stream.abandon()
 
     def stop_sending(self, stream_id, error_code=H3ErrorCode.H3_NO_ERROR):
-        """Stop reading a request body, as a server that already answered may.
-
-        Raises:
-            ValueError: If ``stream_id`` is not a request stream ID.
-        """
         cdef int64_t sid = _request_stream_id(stream_id)
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
 
@@ -253,48 +162,26 @@ cdef class H3Connection(BaseConnection):
         self._readable.discard(sid)
 
     def consume_received_data(self, stream_id, amount):
-        """Return flow-control credit for body data the application processed.
-
-        Only needed when ``TransportConfig.auto_flow_control`` is ``False``.
-        """
         self._consume_received(stream_id, amount)
 
     def queued_body_size(self, stream_id=None):
-        """Return body bytes held for sending: unsent plus unacknowledged."""
         return self._held(stream_id)
 
     # ---- shutdown
 
     def send_shutdown_notice(self):
-        """Announce a coming GOAWAY; call ``send_goaway()`` an RTT or two later.
-
-        Raises:
-            ConnectionStateError: If GOAWAY was already sent; a notice would
-                raise its ID, which RFC 9114 5.2 forbids.
-        """
         self._require_ready()
         if self._goaway_sent:
             raise ConnectionStateError("GOAWAY was already sent")
         _check(nh.nghttp3_conn_submit_shutdown_notice(self._h3))
 
     def send_goaway(self):
-        """Start a graceful shutdown with GOAWAY (RFC 9114 5.2).
-
-        A server refuses requests it has not started and finishes the rest;
-        once ``is_drained``, close the connection with ``H3_NO_ERROR``. A
-        client's GOAWAY limits server push, which nghttp3 never enables, so
-        a client closes once its own requests finish.
-        """
         self._require_ready()
         _check(nh.nghttp3_conn_shutdown(self._h3))
         self._goaway_sent = True
 
     @property
     def is_drained(self):
-        """Whether a server sent GOAWAY and finished every request it accepted.
-
-        Always ``False`` on a client.
-        """
         return bool(
             self._h3 != NULL
             and not self.is_client
@@ -304,7 +191,6 @@ cdef class H3Connection(BaseConnection):
     # ---- priority (RFC 9218)
 
     def send_priority_update(self, stream_id, field_value):
-        """Ask the server to reprioritize a request, as ``b"u=1, i"``."""
         cdef int64_t sid = _stream_id(stream_id)
         cdef bytes value = _owned_bytes(field_value)
         cdef int rv
@@ -323,7 +209,6 @@ cdef class H3Connection(BaseConnection):
         _check(rv)
 
     def set_stream_priority(self, stream_id, priority):
-        """Schedule a response with ``priority``, overriding the client's signal."""
         cdef int64_t sid = _stream_id(stream_id)
         cdef nh.nghttp3_pri pri
         cdef int rv
@@ -342,7 +227,6 @@ cdef class H3Connection(BaseConnection):
         _check(rv)
 
     def get_stream_priority(self, stream_id):
-        """Return a request's current ``Priority``, or ``None`` if it is gone."""
         cdef nh.nghttp3_pri pri
 
         self._require_server("only servers track request priorities")
@@ -355,22 +239,6 @@ cdef class H3Connection(BaseConnection):
     # ---- HTTP/3 datagrams (RFC 9297)
 
     def send_datagram(self, stream_id, data):
-        """Queue an HTTP/3 datagram for a request stream.
-
-        Both sides must enable ``H3Config.h3_datagram``; the peer's choice
-        arrives with ``SettingsReceived``. The request's extension, such as
-        CONNECT-UDP, gives datagrams their meaning.
-
-        Returns:
-            An ID reported by ``DatagramAcknowledged`` or ``DatagramLost``.
-
-        Raises:
-            DatagramError: If HTTP/3 datagrams are not negotiated or ``data``
-                exceeds ``max_datagram_size(stream_id)``.
-            StreamStateError: If the stream has no open message to send on:
-                a server answers first, and nothing follows ``end_stream``.
-            ValueError: If ``stream_id`` is not a request stream ID.
-        """
         cdef int64_t sid = _request_stream_id(stream_id)
         cdef int64_t limit
         cdef object stream
@@ -405,15 +273,6 @@ cdef class H3Connection(BaseConnection):
         return self._queue_datagram(datagram)
 
     def max_datagram_size(self, stream_id):
-        """Largest datagram payload sendable now on a request stream.
-
-        Returns:
-            The size in bytes, or ``None`` if HTTP/3 datagrams are not
-            negotiated or the peer's QUIC limits leave no room.
-
-        Raises:
-            ValueError: If ``stream_id`` is not a request stream ID.
-        """
         cdef int64_t limit = self._h3_datagram_limit(_request_stream_id(stream_id))
 
         return None if limit < 0 else limit

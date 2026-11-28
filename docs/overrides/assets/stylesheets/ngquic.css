@@ -1,0 +1,1331 @@
+/*
+ * ngquic documentation theme, layered on Zensical's modern variant.
+ *
+ * One accent (vermilion) marks the logo, links and the current place in the
+ * navigation; everything else stays neutral so code and diagrams carry the
+ * page. Light and dark tokens are defined once below and every component
+ * reads them, so a colour changes in exactly one place.
+ */
+
+@font-face {
+  font-family: "Martian Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/martian-mono-600.woff2") format("woff2");
+}
+
+/* ---------------------------------------------------------------- tokens */
+
+:root,
+body[data-md-color-scheme="default"],
+body[data-md-color-scheme="default"][data-md-color-primary] {
+  --nq-accent: #da3d0f;
+  --nq-accent-hover: #b8320b;
+  --nq-accent-soft: rgb(218 61 15 / 8%);
+  --nq-ink: #1f2328;
+  --nq-muted: #59636e;
+  --nq-faint: #8c959f;
+  --nq-line: #d1d9e0;
+  --nq-line-soft: #e6eaef;
+  --nq-surface: #f6f8fa;
+  --nq-bg: #ffffff;
+  --nq-note: #0969da;
+  --nq-tip: #1a7f37;
+  --nq-warning: #9a6700;
+
+  --md-default-bg-color: var(--nq-bg);
+  --md-default-fg-color: var(--nq-ink);
+  --md-default-fg-color--light: var(--nq-muted);
+  --md-default-fg-color--lighter: var(--nq-faint);
+  --md-default-fg-color--lightest: var(--nq-line);
+  --md-primary-fg-color: var(--nq-bg);
+  --md-primary-fg-color--light: var(--nq-surface);
+  --md-primary-fg-color--dark: var(--nq-ink);
+  --md-primary-bg-color: var(--nq-ink);
+  --md-primary-bg-color--light: var(--nq-muted);
+  --md-accent-fg-color: var(--nq-accent);
+  --md-accent-fg-color--transparent: var(--nq-accent-soft);
+  --md-accent-bg-color: var(--nq-bg);
+  --md-typeset-color: var(--nq-ink);
+  --md-typeset-a-color: var(--nq-accent);
+  --md-typeset-table-color: var(--nq-line);
+  --md-footer-bg-color: var(--nq-surface);
+  --md-footer-bg-color--dark: var(--nq-surface);
+  --md-footer-fg-color: var(--nq-ink);
+  --md-footer-fg-color--light: var(--nq-muted);
+  --md-footer-fg-color--lighter: var(--nq-faint);
+
+  --md-code-bg-color: var(--nq-surface);
+  --md-code-fg-color: var(--nq-ink);
+  --md-code-hl-color: var(--nq-accent);
+  --md-code-hl-color--light: var(--nq-accent-soft);
+  --md-code-hl-keyword-color: #cf2e0a;
+  --md-code-hl-string-color: #0a3069;
+  --md-code-hl-number-color: #0550ae;
+  --md-code-hl-constant-color: #0550ae;
+  --md-code-hl-special-color: #0550ae;
+  --md-code-hl-function-color: #6639ba;
+  --md-code-hl-name-color: var(--nq-ink);
+  --md-code-hl-operator-color: var(--nq-muted);
+  --md-code-hl-punctuation-color: var(--nq-muted);
+  --md-code-hl-comment-color: #6e7781;
+  --md-code-hl-generic-color: var(--nq-muted);
+  --md-code-hl-variable-color: #953800;
+}
+
+body[data-md-color-scheme="slate"],
+body[data-md-color-scheme="slate"][data-md-color-primary] {
+  --nq-accent: #fe7553;
+  --nq-accent-hover: #ff9478;
+  --nq-accent-soft: rgb(254 117 83 / 12%);
+  --nq-ink: #e6edf3;
+  --nq-muted: #9198a1;
+  --nq-faint: #6e7681;
+  --nq-line: #30363d;
+  --nq-line-soft: #21262d;
+  --nq-surface: #151b23;
+  --nq-bg: #0d1117;
+  --nq-note: #4493f8;
+  --nq-tip: #3fb950;
+  --nq-warning: #d29922;
+
+  --md-default-bg-color: var(--nq-bg);
+  --md-default-bg-color--light: var(--nq-surface);
+  --md-default-bg-color--lighter: var(--nq-line-soft);
+  --md-default-bg-color--lightest: var(--nq-line);
+  --md-default-fg-color: var(--nq-ink);
+  --md-default-fg-color--light: var(--nq-muted);
+  --md-default-fg-color--lighter: var(--nq-faint);
+  --md-default-fg-color--lightest: var(--nq-line);
+  --md-primary-fg-color: var(--nq-bg);
+  --md-primary-bg-color: var(--nq-ink);
+  --md-primary-bg-color--light: var(--nq-muted);
+  --md-accent-fg-color: var(--nq-accent);
+  --md-accent-fg-color--transparent: var(--nq-accent-soft);
+  --md-accent-bg-color: var(--nq-bg);
+  --md-typeset-color: var(--nq-ink);
+  --md-typeset-a-color: var(--nq-accent);
+  --md-typeset-table-color: var(--nq-line);
+  --md-footer-bg-color: #010409;
+  --md-footer-bg-color--dark: #010409;
+  --md-footer-fg-color: var(--nq-ink);
+  --md-footer-fg-color--light: var(--nq-muted);
+  --md-footer-fg-color--lighter: var(--nq-faint);
+
+  --md-code-bg-color: var(--nq-surface);
+  --md-code-fg-color: var(--nq-ink);
+  --md-code-hl-keyword-color: #ff8a6b;
+  --md-code-hl-string-color: #a5d6ff;
+  --md-code-hl-number-color: #79c0ff;
+  --md-code-hl-constant-color: #79c0ff;
+  --md-code-hl-special-color: #79c0ff;
+  --md-code-hl-function-color: #d2a8ff;
+  --md-code-hl-name-color: var(--nq-ink);
+  --md-code-hl-operator-color: var(--nq-muted);
+  --md-code-hl-punctuation-color: var(--nq-muted);
+  --md-code-hl-comment-color: #8b949e;
+  --md-code-hl-generic-color: var(--nq-muted);
+  --md-code-hl-variable-color: #ffa657;
+}
+
+/* Diagrams follow the same tokens in both schemes. */
+:root,
+body[data-md-color-scheme] {
+  --md-mermaid-font-family: var(--md-text-font-family);
+  --md-mermaid-edge-color: var(--nq-muted);
+  --md-mermaid-node-bg-color: var(--nq-surface);
+  --md-mermaid-node-fg-color: var(--nq-ink);
+  --md-mermaid-label-bg-color: var(--nq-bg);
+  --md-mermaid-label-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-actor-bg-color: var(--nq-surface);
+  --md-mermaid-sequence-actor-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-actor-border-color: var(--nq-line);
+  --md-mermaid-sequence-actor-line-color: var(--nq-line);
+  --md-mermaid-sequence-actorman-bg-color: var(--nq-surface);
+  --md-mermaid-sequence-actorman-line-color: var(--nq-muted);
+  --md-mermaid-sequence-box-bg-color: var(--nq-surface);
+  --md-mermaid-sequence-box-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-label-bg-color: var(--nq-surface);
+  --md-mermaid-sequence-label-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-loop-bg-color: var(--nq-accent-soft);
+  --md-mermaid-sequence-loop-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-loop-border-color: var(--nq-accent);
+  --md-mermaid-sequence-message-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-message-line-color: var(--nq-muted);
+  --md-mermaid-sequence-note-bg-color: var(--nq-accent-soft);
+  --md-mermaid-sequence-note-fg-color: var(--nq-ink);
+  --md-mermaid-sequence-note-border-color: var(--nq-accent);
+  --md-mermaid-sequence-number-bg-color: var(--nq-accent);
+  --md-mermaid-sequence-number-fg-color: var(--nq-bg);
+}
+
+/* ---------------------------------------------------------------- header */
+
+.md-header {
+  border-bottom: 1px solid var(--nq-line);
+  box-shadow: none;
+}
+
+.md-header[data-md-state="shadow"],
+.md-header--shadow {
+  box-shadow: none;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  width: auto;
+  height: 0.8rem;
+}
+
+/* The site name is the wordmark: the same face as the logo lockup. */
+.md-header__topic:first-child {
+  font-family: "Martian Mono", var(--md-code-font-family);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.md-header__topic + .md-header__topic {
+  font-weight: 600;
+}
+
+/* Order the header right side as: search, then the icon controls
+   (language, color scheme), then the repository. The theme emits them as
+   scheme, language, search, repository; the header is a flex row. */
+.md-header__inner > .md-search,
+.md-header__inner > label[for="__search"] {
+  order: 1;
+}
+
+.md-header__inner > div.md-header__option {
+  order: 2;
+}
+
+.md-header__inner > form.md-header__option {
+  order: 3;
+}
+
+.md-header__inner > .md-header__source {
+  order: 4;
+}
+
+@media screen and (min-width: 45em) {
+  .md-header__inner > .md-search {
+    margin-right: 0.4rem;
+  }
+}
+
+/* Search reads as a quiet input with a hairline, like the page's controls. */
+@media screen and (min-width: 45em) {
+  .md-search__button {
+    width: 10rem;
+    height: 1.7rem;
+    border: 1px solid var(--nq-line);
+    border-radius: 0.45rem;
+    background-color: var(--nq-surface);
+    color: var(--nq-faint);
+    font-size: 0.68rem;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+
+  .md-search__button:hover,
+  .md-search__button:focus {
+    border-color: var(--nq-faint);
+    background-color: var(--nq-surface);
+    color: var(--nq-muted);
+  }
+
+  .md-search__button::before {
+    top: 0.35rem;
+    background-color: var(--nq-faint);
+  }
+
+  .md-search__button::after {
+    top: 0.33rem;
+    padding: 0.05rem 0.3rem;
+    border: 1px solid var(--nq-line);
+    background: var(--nq-bg);
+    color: var(--nq-faint);
+    font-family: var(--md-code-font-family);
+    font-size: 0.55rem;
+  }
+}
+
+/* The repository link: muted, and closer to the controls it sits beside. */
+@media screen and (min-width: 60em) {
+  [dir="ltr"] .md-header__source {
+    margin-left: 0.6rem;
+  }
+
+  .md-header__source {
+    width: 10rem;
+    max-width: 10rem;
+  }
+}
+
+.md-source {
+  color: var(--nq-muted);
+}
+
+.md-source:hover {
+  color: var(--nq-ink);
+}
+
+.md-header__button.md-icon {
+  color: var(--nq-muted);
+}
+
+.md-header__button.md-icon:hover {
+  color: var(--nq-ink);
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------ navigation */
+
+.md-nav {
+  font-size: 0.68rem;
+}
+
+.md-nav__item--section > .md-nav__link {
+  margin-top: 1.25em;
+  color: var(--nq-faint);
+  font-size: 0.6rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.md-nav__link {
+  color: var(--nq-muted);
+}
+
+.md-nav__link:hover,
+.md-nav__link:focus {
+  color: var(--nq-ink);
+}
+
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  color: var(--nq-accent);
+  font-weight: 600;
+}
+
+.md-nav--secondary .md-nav__title {
+  color: var(--nq-faint);
+  font-size: 0.6rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+/* ------------------------------------------------------------- typeset */
+
+.md-typeset {
+  font-size: 0.8rem;
+  line-height: 1.7;
+}
+
+.md-typeset h1 {
+  margin-bottom: 0.9em;
+  color: var(--nq-ink);
+  font-size: 1.85em;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.md-typeset h2 {
+  margin-top: 2.2em;
+  padding-top: 1.1em;
+  border-top: 1px solid var(--nq-line-soft);
+  font-size: 1.3em;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.md-typeset h1 + h2,
+.md-typeset .nq-home h2 {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.md-typeset h3 {
+  margin-top: 1.8em;
+  font-size: 1.05em;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+}
+
+.md-typeset h4 {
+  font-size: 0.95em;
+  font-weight: 650;
+}
+
+.md-typeset a {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--nq-accent) 35%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+  transition: text-decoration-color 120ms ease, color 120ms ease;
+}
+
+.md-typeset a:hover {
+  color: var(--nq-accent-hover);
+  text-decoration-color: currentcolor;
+}
+
+.md-typeset .headerlink,
+.md-typeset .md-button,
+.md-typeset .doc-heading a {
+  text-decoration: none;
+}
+
+.md-typeset hr {
+  border-bottom: 1px solid var(--nq-line-soft);
+}
+
+/* Inline code reads as a token, not a highlight. */
+.md-typeset :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--nq-line-soft);
+  border-radius: 0.25rem;
+  background: var(--nq-surface);
+  color: var(--nq-ink);
+  font-size: 0.84em;
+  word-break: normal;
+}
+
+.md-typeset a > code {
+  color: inherit;
+}
+
+/* Code blocks: a quiet panel with a hairline. */
+.md-typeset pre > code {
+  font-size: 0.78em;
+  line-height: 1.6;
+}
+
+.md-typeset .highlight,
+.md-typeset pre {
+  border-radius: 0.5rem;
+}
+
+.md-typeset .highlight pre,
+.md-typeset pre:not(.mermaid) {
+  border: 1px solid var(--nq-line-soft);
+}
+
+.md-typeset .highlight span.filename {
+  border: 1px solid var(--nq-line-soft);
+  border-bottom: 0;
+  background: var(--nq-bg);
+  color: var(--nq-muted);
+  font-size: 0.7em;
+  font-weight: 600;
+}
+
+.md-clipboard {
+  color: var(--nq-faint);
+}
+
+.md-clipboard:hover {
+  color: var(--nq-accent);
+}
+
+/* Tables: hairlines, no zebra, header set apart by weight. */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--nq-line);
+  border-radius: 0.5rem;
+  box-shadow: none;
+  font-size: 0.74rem;
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--nq-surface);
+  color: var(--nq-ink);
+  font-weight: 600;
+}
+
+.md-typeset table:not([class]) td,
+.md-typeset table:not([class]) th {
+  padding: 0.65em 0.9em;
+  border-top: 1px solid var(--nq-line-soft);
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Admonitions: three kinds, flat, a coloured rule and icon only. */
+.md-typeset .admonition,
+.md-typeset details {
+  border: 1px solid var(--nq-line);
+  border-left: 3px solid var(--nq-adm, var(--nq-note));
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--nq-adm, var(--nq-note)) 5%, var(--nq-bg));
+  box-shadow: none;
+  font-size: 0.74rem;
+}
+
+.md-typeset .admonition > :not(.admonition-title),
+.md-typeset details > :not(summary) {
+  margin-block: 0.6em;
+}
+
+.md-typeset .admonition-title,
+.md-typeset summary {
+  background: transparent;
+  color: var(--nq-ink);
+  font-weight: 650;
+}
+
+.md-typeset .admonition-title::before,
+.md-typeset summary::before {
+  background-color: var(--nq-adm, var(--nq-note));
+}
+
+.md-typeset .admonition.note,
+.md-typeset details.note {
+  --nq-adm: var(--nq-note);
+}
+
+.md-typeset .admonition.tip,
+.md-typeset details.tip {
+  --nq-adm: var(--nq-tip);
+}
+
+.md-typeset .admonition.warning,
+.md-typeset details.warning {
+  --nq-adm: var(--nq-warning);
+}
+
+/* Collapsed complete programs: neutral, they are reference material. */
+.md-typeset details.example {
+  --nq-adm: var(--nq-faint);
+}
+
+/* The theme tints each kind by its own selectors; match them so the flat
+   style above wins for every kind we use. */
+.md-typeset :is(.admonition, details):is(.note, .tip, .warning, .example) {
+  border-color: var(--nq-line);
+  border-left-color: var(--nq-adm);
+  background: color-mix(in srgb, var(--nq-adm) 5%, var(--nq-bg));
+}
+
+.md-typeset :is(.note, .tip, .warning, .example) > :is(.admonition-title, summary) {
+  background: transparent;
+}
+
+.md-typeset :is(.note, .tip, .warning, .example) > :is(.admonition-title, summary)::before,
+.md-typeset :is(.note, .tip, .warning, .example) > summary::after {
+  background-color: var(--nq-adm);
+}
+
+.md-typeset details.example > summary {
+  font-weight: 600;
+}
+
+/* Buttons: one filled accent action, everything else outlined. */
+.md-typeset .md-button,
+.md-typeset a.md-button {
+  padding: 0.55em 1.2em;
+  background: transparent;
+  border: 1px solid var(--nq-line);
+  border-radius: 0.45rem;
+  color: var(--nq-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.md-typeset a.md-button:hover,
+.md-typeset a.md-button:focus {
+  border-color: var(--nq-ink);
+  background: transparent;
+  color: var(--nq-ink);
+}
+
+.md-typeset a.md-button--primary {
+  border-color: var(--nq-accent);
+  background: var(--nq-accent);
+  color: #ffffff;
+}
+
+.md-typeset a.md-button--primary:hover,
+.md-typeset a.md-button--primary:focus {
+  border-color: var(--nq-accent-hover);
+  background: var(--nq-accent-hover);
+  color: #ffffff;
+}
+
+body[data-md-color-scheme="slate"] .md-typeset a.md-button--primary,
+body[data-md-color-scheme="slate"] .md-typeset a.md-button--primary:hover {
+  color: #0d1117;
+}
+
+/* Mermaid diagrams sit on the page, framed like code. */
+.md-typeset .mermaid {
+  margin: 1.5em 0;
+  padding: 1.2em;
+  border: 1px solid var(--nq-line-soft);
+  border-radius: 0.5rem;
+  background: var(--nq-bg);
+  text-align: center;
+}
+
+/* ------------------------------------------------------- API reference */
+
+:root,
+body[data-md-color-scheme] {
+  --doc-symbol-parameter-fg-color: var(--nq-muted);
+  --doc-symbol-attribute-fg-color: var(--nq-muted);
+  --doc-symbol-function-fg-color: var(--nq-note);
+  --doc-symbol-method-fg-color: var(--nq-note);
+  --doc-symbol-class-fg-color: var(--nq-accent);
+  --doc-symbol-module-fg-color: var(--nq-tip);
+  --doc-symbol-parameter-bg-color: var(--nq-surface);
+  --doc-symbol-attribute-bg-color: var(--nq-surface);
+  --doc-symbol-function-bg-color: color-mix(in srgb, var(--nq-note) 10%, transparent);
+  --doc-symbol-method-bg-color: color-mix(in srgb, var(--nq-note) 10%, transparent);
+  --doc-symbol-class-bg-color: var(--nq-accent-soft);
+  --doc-symbol-module-bg-color: color-mix(in srgb, var(--nq-tip) 10%, transparent);
+}
+
+.md-typeset .doc-heading {
+  font-weight: 600;
+}
+
+.md-typeset .doc-heading code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.95em;
+}
+
+.md-typeset h2.doc-heading,
+.md-typeset h3.doc-heading {
+  margin-top: 2.4em;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--nq-line);
+}
+
+.md-typeset h4.doc-heading,
+.md-typeset h5.doc-heading {
+  margin-top: 1.8em;
+  font-size: 0.82rem;
+}
+
+.md-typeset .doc-signature,
+.md-typeset .doc-signature pre {
+  font-size: 0.76rem;
+}
+
+.md-typeset .doc-contents .doc-contents {
+  padding-left: 0.9rem;
+  border-left: 1px solid var(--nq-line-soft);
+}
+
+.md-typeset .doc-section-title {
+  color: var(--nq-faint);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.md-typeset .doc-symbol {
+  border-radius: 0.25rem;
+  font-family: var(--md-code-font-family);
+  font-size: 0.68em;
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------- footer */
+
+.md-footer {
+  border-top: 1px solid var(--nq-line);
+}
+
+.md-footer__link {
+  color: var(--nq-ink);
+}
+
+.md-footer-meta {
+  border-top: 1px solid var(--nq-line-soft);
+  background: var(--md-footer-bg-color);
+  color: var(--nq-muted);
+}
+
+/* ---------------------------------------------------------------- home */
+
+.md-typeset .nq-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 2.4rem;
+  align-items: center;
+  margin: 1.2rem 0 2.8rem;
+}
+
+.md-typeset .nq-eyebrow {
+  margin: 0 0 0.9rem;
+  color: var(--nq-accent);
+  font-family: var(--md-code-font-family);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.md-typeset .nq-hero h1 {
+  margin: 0 0 0.6em;
+  font-size: clamp(1.6rem, 3.4vw, 2.3rem);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.md-typeset .nq-lede {
+  margin: 0 0 1.4rem;
+  color: var(--nq-muted);
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.md-typeset .nq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.md-typeset .nq-actions .md-button {
+  margin: 0;
+}
+
+/* Install: one bordered unit. A slim tab strip (uv / pip) is attached to the
+   top of the command, like a file tab on a code block; the command has a "$"
+   prompt and a copy button. */
+.md-typeset .nq-install {
+  width: fit-content;
+  min-width: 16rem;
+  max-width: 100%;
+  margin-top: 1.5rem;
+}
+
+.md-typeset .nq-install .tabbed-set {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--nq-line);
+  border-radius: 0.5rem;
+  background: var(--nq-surface);
+}
+
+.md-typeset .nq-install .tabbed-labels {
+  display: flex;
+  gap: 0.1rem;
+  height: auto;
+  padding: 0 0.35rem;
+  border-bottom: 1px solid var(--nq-line-soft);
+  background: var(--nq-bg);
+  box-shadow: none;
+}
+
+.js .md-typeset .nq-install .tabbed-labels::before {
+  display: none;
+}
+
+/* The tabs script wraps each label in a link that the theme pads. */
+.md-typeset .nq-install .tabbed-labels > label > a,
+.md-typeset .nq-install .tabbed-labels--linked > label > a {
+  display: inline;
+  padding: 0;
+}
+
+.md-typeset .nq-install .tabbed-labels > label,
+.md-typeset .nq-install .tabbed-labels--linked > label {
+  padding: 0.3rem 0.5rem 0.25rem;
+  border: 0;
+  border-radius: 0;
+  color: var(--nq-faint);
+  font-family: var(--md-text-font-family);
+  font-size: 0.6rem;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: none;
+}
+
+.md-typeset .nq-install .tabbed-labels > label:hover {
+  color: var(--nq-ink);
+}
+
+.md-typeset .nq-install .tabbed-alternate > input:nth-child(1):checked ~ .tabbed-labels > :nth-child(1),
+.md-typeset .nq-install .tabbed-alternate > input:nth-child(2):checked ~ .tabbed-labels > :nth-child(2) {
+  color: var(--nq-ink);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--nq-accent);
+}
+
+.md-typeset .nq-install .tabbed-content {
+  margin: 0;
+  box-shadow: none;
+}
+
+.md-typeset .nq-install .tabbed-block > .highlight {
+  margin: 0;
+}
+
+.md-typeset .nq-install .highlight pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.md-typeset .nq-install .highlight pre > code {
+  padding: 0.55rem 2.4rem 0.55rem 0.8rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.md-typeset .nq-install .highlight pre > code > span[id^="__span"]::before {
+  content: "$ ";
+  color: var(--nq-accent);
+  user-select: none;
+}
+
+.md-typeset .nq-install .md-clipboard {
+  top: 50%;
+  right: 0.4rem;
+  transform: translateY(-50%);
+}
+
+/* Sans-I/O boundary diagram: inline SVG, coloured by the tokens. */
+.md-typeset .nq-figure {
+  margin: 0;
+  padding: 1.1rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 0.75rem;
+  background: var(--nq-surface);
+}
+
+.md-typeset .nq-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: var(--md-text-font-family);
+}
+
+.nq-figure .box {
+  fill: var(--nq-bg);
+  stroke: var(--nq-line);
+  stroke-width: 1.5;
+}
+
+.nq-figure .core {
+  fill: var(--nq-bg);
+  stroke: var(--nq-accent);
+  stroke-width: 2;
+}
+
+.nq-figure .title {
+  fill: var(--nq-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.nq-figure .core-title {
+  fill: var(--nq-accent);
+  font-family: "Martian Mono", var(--md-code-font-family);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.nq-figure .item {
+  fill: var(--nq-muted);
+  font-size: 12.5px;
+}
+
+.nq-figure .flow {
+  fill: none;
+  stroke: var(--nq-ink);
+  stroke-width: 1.6;
+}
+
+.nq-figure .flow-head {
+  fill: var(--nq-ink);
+}
+
+.nq-figure .label {
+  fill: var(--nq-ink);
+  font-family: var(--md-code-font-family);
+  font-size: 11.5px;
+}
+
+.nq-figure .label-bg {
+  fill: var(--nq-surface);
+}
+
+.nq-figure figcaption,
+.md-typeset .nq-figure figcaption {
+  margin: 0.7rem 0 0;
+  color: var(--nq-muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  text-align: left;
+}
+
+/* Reasons to choose ngquic. */
+.md-typeset .nq-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0 2.6rem;
+}
+
+.md-typeset .nq-card {
+  padding: 1rem 1.1rem 1.1rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 0.6rem;
+  background: var(--nq-bg);
+}
+
+.md-typeset .nq-card h3 {
+  margin: 0 0 0.35em;
+  font-size: 0.86rem;
+}
+
+.md-typeset .nq-card p {
+  margin: 0;
+  color: var(--nq-muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.md-typeset .nq-card .nq-stat {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--nq-accent);
+  font-family: "Martian Mono", var(--md-code-font-family);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* The family: three libraries, this one lit. */
+.md-typeset .nq-family {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0 0.5rem;
+}
+
+.md-typeset .nq-family a {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.75rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 0.6rem;
+  color: var(--nq-ink);
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+
+.md-typeset .nq-family a:hover {
+  border-color: var(--nq-accent);
+}
+
+.md-typeset .nq-family img {
+  grid-row: span 2;
+  width: 2rem;
+  height: auto;
+  opacity: 0.45;
+}
+
+.md-typeset .nq-family a[aria-current] img {
+  opacity: 1;
+}
+
+.md-typeset .nq-family strong {
+  font-family: "Martian Mono", var(--md-code-font-family);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.md-typeset .nq-family span {
+  color: var(--nq-muted);
+  font-size: 0.68rem;
+}
+
+.md-typeset .nq-family a[aria-current] {
+  border-color: var(--nq-accent);
+  background: var(--nq-accent-soft);
+}
+
+/* ------------------------------------------------------------- Chinese */
+
+/* CJK text needs more leading and no negative tracking. */
+html[lang^="zh"] .md-typeset {
+  line-height: 1.85;
+}
+
+html[lang^="zh"] .md-typeset h1,
+html[lang^="zh"] .md-typeset h2,
+html[lang^="zh"] .md-typeset h3,
+html[lang^="zh"] .md-typeset .nq-hero h1 {
+  letter-spacing: 0;
+}
+
+html[lang^="zh"] .md-typeset .nq-hero h1 {
+  line-height: 1.25;
+}
+
+html[lang^="zh"] .md-nav__item--section > .md-nav__link,
+html[lang^="zh"] .md-typeset .doc-section-title {
+  letter-spacing: 0.02em;
+}
+
+/* ----------------------------------------------------------- responsive */
+
+@media screen and (max-width: 59.984em) {
+  .md-typeset .nq-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.6rem;
+  }
+}
+
+@media screen and (max-width: 44.984em) {
+  .md-typeset .nq-cards,
+  .md-typeset .nq-family {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset a,
+  .md-typeset .md-button,
+  .md-typeset .nq-family a {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------- controls and motion */
+
+/* Compact admonition and collapsible headers. */
+.md-typeset :is(.admonition-title, summary) {
+  padding-block: 0.45rem;
+  font-size: 0.72rem;
+}
+
+.md-typeset details > summary {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.md-typeset details > summary:hover {
+  background-color: color-mix(in srgb, var(--nq-adm, var(--nq-note)) 8%, transparent);
+}
+
+/* Scrollbars stay thin and neutral; the accent is reserved for links. */
+.md-sidebar__scrollwrap,
+.md-typeset pre > code {
+  scrollbar-color: var(--nq-line) transparent;
+}
+
+.md-sidebar__scrollwrap:is(:hover, :focus-within),
+.md-typeset pre > code:hover {
+  scrollbar-color: var(--nq-faint) transparent;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar,
+.md-typeset pre > code::-webkit-scrollbar {
+  width: 0.15rem;
+  height: 0.15rem;
+}
+
+.md-sidebar__scrollwrap::-webkit-scrollbar-thumb,
+.md-sidebar__scrollwrap:is(:hover, :focus-within)::-webkit-scrollbar-thumb,
+.md-typeset pre > code::-webkit-scrollbar-thumb,
+.md-typeset pre > code::-webkit-scrollbar-thumb:hover {
+  border-radius: 1rem;
+  background-color: var(--nq-line);
+}
+
+/* "Copied" notice: a small neutral pill at the top centre. */
+.md-dialog,
+[dir="ltr"] .md-dialog,
+[dir="rtl"] .md-dialog {
+  top: 3.2rem;
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  min-width: 0;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background-color: var(--nq-bg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 8%);
+  transform: translate(-50%, -0.4rem);
+}
+
+.md-dialog--active {
+  transform: translate(-50%, 0);
+}
+
+.md-dialog__inner {
+  color: var(--nq-ink);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Language menu: the same size as the navigation, in a hairline panel. */
+.md-select__inner {
+  border: 1px solid var(--nq-line);
+  border-radius: 0.5rem;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 8%);
+}
+
+.md-select__inner::after {
+  display: none;
+}
+
+.md-select__list {
+  padding: 0.25rem;
+  font-size: 0.68rem;
+}
+
+.md-select__item {
+  line-height: 1.6rem;
+}
+
+[dir="ltr"] .md-select__link,
+[dir="rtl"] .md-select__link {
+  padding-inline: 0.6rem;
+  border-radius: 0.3rem;
+}
+
+.md-select__link:is(:hover, :focus) {
+  background-color: var(--nq-surface);
+  color: var(--nq-ink);
+}
+
+/* Keyboard focus is always visible, never on mouse click. */
+:is(a, button, summary, label, input):focus-visible,
+.md-typeset :is(a, summary):focus-visible {
+  outline: 2px solid var(--nq-accent);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* Navigation items get a soft hover surface. */
+.md-nav--primary .md-nav__link {
+  border-radius: 0.35rem;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.md-nav--primary .md-nav__link:hover {
+  background-color: var(--nq-surface);
+}
+
+/* Cards and family links lift slightly on hover. */
+.md-typeset :is(.nq-card, .nq-family a) {
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.md-typeset :is(.nq-card, .nq-family a):hover {
+  box-shadow: 0 4px 14px rgb(0 0 0 / 6%);
+  transform: translateY(-1px);
+}
+
+/* Buttons press in. */
+.md-typeset a.md-button:active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset :is(.nq-card, .nq-family a),
+  .md-typeset :is(.nq-card, .nq-family a):hover,
+  .md-typeset a.md-button:active {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* System font stacks, with CJK families before generic fallbacks. */
+:root {
+  --md-text-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --md-code-font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Complete files (code blocks with a filename title) scroll inside a capped
+   height, so a long listing does not push the walkthrough off the page; the
+   copy button still copies the whole file. */
+.md-typeset .highlight:has(> .filename) pre > code {
+  max-height: 24rem;
+  overflow: auto;
+}
+
+/* Tabs everywhere: small labels, ink indicator, hairline rule. */
+.md-typeset .tabbed-labels {
+  box-shadow: inset 0 -1px 0 var(--nq-line-soft);
+}
+
+.md-typeset .tabbed-labels > label {
+  padding: 0.55em 0.9em 0.5em;
+  color: var(--nq-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+
+.md-typeset .tabbed-labels > label:hover {
+  color: var(--nq-ink);
+}
+
+.md-typeset .tabbed-alternate > input:nth-child(1):checked ~ .tabbed-labels > :nth-child(1),
+.md-typeset .tabbed-alternate > input:nth-child(2):checked ~ .tabbed-labels > :nth-child(2),
+.md-typeset .tabbed-alternate > input:nth-child(3):checked ~ .tabbed-labels > :nth-child(3) {
+  color: var(--nq-ink);
+  font-weight: 650;
+}
+
+.js .md-typeset .tabbed-labels::before {
+  height: 2px;
+  background: var(--nq-ink);
+}
+
+/* Code blocks leave room on the right for the copy button. */
+.md-typeset pre > code {
+  padding-right: 2.6em;
+}
+
+/* ------------------------------------------- admonitions, final layout */
+
+/* Every kind shares one flat layout; the kind only sets the accent. These
+   rules come last and match the theme's specificity, so they win. */
+.md-typeset :is(.admonition, details):is([class]) {
+  --nq-adm: var(--nq-note);
+  margin: 1.2em 0;
+  padding: 0 0.9rem;
+  border: 1px solid var(--nq-line);
+  border-left: 3px solid var(--nq-adm);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--nq-adm) 4%, var(--nq-bg));
+  box-shadow: none;
+  font-size: 0.74rem;
+}
+
+.md-typeset :is(.admonition, details):is(.tip, .success, .question) {
+  --nq-adm: var(--nq-tip);
+}
+
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention, .failure, .danger, .bug) {
+  --nq-adm: var(--nq-warning);
+}
+
+.md-typeset :is(.admonition, details):is(.example, .quote) {
+  --nq-adm: var(--nq-faint);
+}
+
+/* Title: icon and text on one baseline, compact. */
+.md-typeset :is(.admonition, details):is([class]) > :is(.admonition-title, summary),
+[dir="ltr"] .md-typeset :is(.admonition, details):is([class]) > :is(.admonition-title, summary) {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 -0.9rem;
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--nq-ink);
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.md-typeset :is(.admonition, details):is([class]) > :is(.admonition-title, summary)::before {
+  position: static;
+  flex: none;
+  width: 0.9rem;
+  height: 0.9rem;
+  background-color: var(--nq-adm);
+}
+
+.md-typeset details:is([class]) > summary {
+  padding-right: 2rem;
+}
+
+.md-typeset details:is([class]) > summary::after {
+  top: 50%;
+  right: 0.8rem;
+  width: 0.9rem;
+  height: 0.9rem;
+  background-color: var(--nq-faint);
+  transform: translateY(-50%) rotate(0deg);
+}
+
+.md-typeset details[open]:is([class]) > summary::after {
+  transform: translateY(-50%) rotate(90deg);
+}
+
+/* Body: no stretched gaps. */
+.md-typeset :is(.admonition, details):is([class]) > :not(.admonition-title, summary) {
+  margin-block: 0 0.7rem;
+}
+
+.md-typeset :is(.admonition, details):is([class]) > :is(.admonition-title, summary) + * {
+  margin-top: 0;
+}
+
+/* ------------------------------------------------- code, final details */
+
+/* Highlighted lines (hl_lines) read as a soft accent band with a rule. */
+.md-typeset .highlight .hll {
+  margin: 0 -2.6em 0 -1.25em;
+  padding: 0 2.6em 0 calc(1.25em - 2px);
+  border-left: 2px solid var(--nq-accent);
+  background-color: var(--nq-accent-soft);
+}
+
+/* Console blocks: a muted "$" prompt that copying leaves out. */
+.md-typeset .language-console .gp,
+.md-typeset .language-console .gp + .w {
+  color: var(--nq-faint);
+  user-select: none;
+}
+
+.md-typeset .language-console .go {
+  color: var(--nq-muted);
+}
+
+/* Filename titles look like a tab on top of the block. */
+.md-typeset .highlight span.filename {
+  display: block;
+  margin: 0;
+  padding: 0.45em 1.1em;
+  border: 1px solid var(--nq-line-soft);
+  border-bottom: 0;
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: var(--nq-bg);
+  color: var(--nq-muted);
+  font-family: var(--md-code-font-family);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.md-typeset .highlight span.filename + pre {
+  margin-top: 0;
+}
+
+.md-typeset .highlight span.filename + pre,
+.md-typeset .highlight span.filename + pre > code {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}

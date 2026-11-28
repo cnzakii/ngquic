@@ -4,6 +4,12 @@ User-visible changes to ngquic are recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- Docstrings now live in the type stubs, so editors such as Pyright and
+  Pylance show them on hover and completion. `help()` on the compiled
+  classes and functions shows their signatures only.
+
 ## [0.2.1] - 2026-11-28
 
 Built on ngtcp2 1.26.0, nghttp3 1.19.0 and AWS-LC 5.15.0, as 0.2.0.

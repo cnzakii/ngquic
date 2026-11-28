@@ -1,17 +1,4 @@
 cdef class TLSContext:
-    """TLS 1.3 settings shared by many connections.
-
-    Method names and meanings follow ``ssl.SSLContext``. Configure a context
-    before handing it to connections; later changes reach new connections.
-
-    Args:
-        role: Whether the context starts or accepts connections.
-
-    Raises:
-        TypeError: If ``role`` is not a ``Role``.
-        TLSError: If AWS-LC cannot create the context.
-    """
-
     # Fields and C methods are declared in tls.pxd.
 
     def __cinit__(self):
@@ -47,7 +34,6 @@ cdef class TLSContext:
 
     @property
     def verify_mode(self):
-        """Whether and how the peer certificate is verified, as ``ssl.VerifyMode``."""
         return self._verify_mode
 
     @verify_mode.setter
@@ -75,7 +61,6 @@ cdef class TLSContext:
 
     @property
     def check_hostname(self):
-        """Whether clients match the server certificate against ``server_name``."""
         return self._check_hostname
 
     @check_hostname.setter
@@ -90,7 +75,6 @@ cdef class TLSContext:
 
     @property
     def keylog_filename(self):
-        """File that receives TLS secrets in NSS key log format, or ``None``."""
         return self._keylog_filename
 
     @keylog_filename.setter
@@ -105,7 +89,6 @@ cdef class TLSContext:
 
     @property
     def early_data(self):
-        """Whether servers accept 0-RTT data from resumed clients."""
         return self._early_data
 
     @early_data.setter
@@ -116,7 +99,6 @@ cdef class TLSContext:
 
     @property
     def num_tickets(self):
-        """Session tickets a server sends after each handshake, at most 16."""
         return ng.SSL_CTX_get_num_tickets(self._ctx)
 
     @num_tickets.setter
@@ -127,11 +109,6 @@ cdef class TLSContext:
 
     @property
     def defer_certificate_selection(self):
-        """Whether servers pause each handshake at ``ClientHelloReceived``.
-
-        The application then picks the certificate, for example by server
-        name, with ``Connection.select_tls_context()``.
-        """
         return self._defer_selection
 
     @defer_certificate_selection.setter
@@ -148,12 +125,6 @@ cdef class TLSContext:
 
     @property
     def defer_peer_verification(self):
-        """Whether the application verifies peer certificates itself.
-
-        Each handshake pauses at ``PeerCertificateReceived`` until
-        ``Connection.verify_peer_certificate()``. This replaces the built-in
-        chain and host name checks, so ``check_hostname`` must be off.
-        """
         return self._defer_verification
 
     @defer_peer_verification.setter
@@ -166,17 +137,6 @@ cdef class TLSContext:
         self.verify_mode = self._verify_mode
 
     def load_cert_chain(self, certfile, keyfile=None, password=None):
-        """Load this side's certificate chain and private key from PEM files.
-
-        Args:
-            certfile: Path of the certificate chain, leaf first.
-            keyfile: Path of the private key; ``None`` reads it from
-                ``certfile``.
-            password: Password of an encrypted private key.
-
-        Raises:
-            TLSError: If a file cannot be read or the key does not match.
-        """
         cdef bytes cert_path = os.fsencode(certfile)
         cdef bytes key_path = os.fsencode(certfile if keyfile is None else keyfile)
         cdef bytes secret = None
@@ -198,17 +158,6 @@ cdef class TLSContext:
                 ng.SSL_CTX_set_default_passwd_cb_userdata(self._ctx, NULL)
 
     def load_verify_locations(self, cafile=None, capath=None, cadata=None):
-        """Trust the certificate authorities in a file, directory or buffer.
-
-        Args:
-            cafile: Path of concatenated PEM certificates.
-            capath: Directory of hashed PEM certificates.
-            cadata: PEM text, or DER bytes of one or more certificates.
-
-        Raises:
-            TypeError: If no source is given.
-            TLSError: If a source cannot be read.
-        """
         cdef bytes file_path = None if cafile is None else os.fsencode(cafile)
         cdef bytes dir_path = None if capath is None else os.fsencode(capath)
 
@@ -229,19 +178,6 @@ cdef class TLSContext:
                 self._add_der(bytes(cadata))
 
     def load_default_certs(self, purpose=Purpose.SERVER_AUTH):
-        """Trust the system's certificate authorities, as ``ssl`` does.
-
-        On Windows this loads the ``CA`` and ``ROOT`` system stores, keeping
-        certificates trusted for ``purpose``; everywhere it then calls
-        ``set_default_verify_paths()``.
-
-        Args:
-            purpose: ``ssl.Purpose.SERVER_AUTH`` to verify servers,
-                ``ssl.Purpose.CLIENT_AUTH`` to verify clients.
-
-        Raises:
-            TypeError: If ``purpose`` is not an ``ssl.Purpose``.
-        """
         if not isinstance(purpose, Purpose):
             raise TypeError("purpose must be an ssl.Purpose")
         if sys.platform == "win32":
@@ -266,25 +202,12 @@ cdef class TLSContext:
         self.set_default_verify_paths()
 
     def set_default_verify_paths(self):
-        """Trust the certificate file and directory ``ssl`` trusts by default.
-
-        These are ``SSL_CERT_FILE`` and ``SSL_CERT_DIR`` when set, otherwise
-        the defaults of the OpenSSL Python was built with, as
-        ``ssl.get_default_verify_paths()`` reports; missing ones are skipped.
-        """
         cdef object paths = get_default_verify_paths()
 
         if paths.cafile is not None or paths.capath is not None:
             self.load_verify_locations(paths.cafile, paths.capath)
 
     def set_alpn_protocols(self, protocols):
-        """Set application protocols, most preferred first.
-
-        QUIC requires ALPN: a handshake fails unless both sides share one.
-
-        Raises:
-            ValueError: If a protocol is empty or longer than 255 bytes.
-        """
         cdef list parts = []
 
         for protocol in protocols:
@@ -297,11 +220,6 @@ cdef class TLSContext:
         self._alpn = b"".join(parts)
 
     def set_groups(self, groups):
-        """Set key exchange groups, such as ``["X25519MLKEM768", "X25519"]``.
-
-        Raises:
-            TLSError: If a group is unknown.
-        """
         cdef bytes names = ":".join(groups).encode("ascii")
 
         ng.ERR_clear_error()

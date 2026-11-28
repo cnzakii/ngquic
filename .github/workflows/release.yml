@@ -35,7 +35,7 @@ jobs:
         run: |
           version="$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' src/*/_version.py)"
           test "$RELEASE_TAG" = "v$version"
-          grep -Fq "## [$version] - " CHANGELOG.md
+          python3 .github/scripts/release_notes.py "$version" > /dev/null
           git merge-base --is-ancestor HEAD origin/main
 
   wheels:
@@ -123,38 +123,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      # The notes are the version's CHANGELOG section, unwrapped, since
-      # release notes keep line breaks; GitHub appends the generated list of
-      # pull requests and their authors.
+      # The version's CHANGELOG section opens the notes; GitHub appends the
+      # generated list of pull requests and their authors.
       - name: Write the notes from the changelog
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          python3 - "${RELEASE_TAG#v}" > notes.md <<'EOF'
-          import re
-          import sys
-
-          version = sys.argv[1]
-          text = open("CHANGELOG.md", encoding="utf-8").read()
-          section = re.search(
-              rf"^## \[{re.escape(version)}\] - [^\n]*\n(.*?)(?=^## \[|\Z)",
-              text,
-              re.M | re.S,
-          )
-          lines = []
-          for line in section.group(1).strip().splitlines():
-              if (
-                  lines
-                  and line.strip()
-                  and lines[-1].strip()
-                  and not line.startswith(("#", "- "))
-                  and not lines[-1].startswith("#")
-              ):
-                  lines[-1] += " " + line.strip()
-              else:
-                  lines.append(line)
-          print("\n".join(lines))
-          EOF
+        run: python3 .github/scripts/release_notes.py "${RELEASE_TAG#v}" > notes.md
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

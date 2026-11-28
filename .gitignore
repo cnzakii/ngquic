@@ -53,3 +53,8 @@ Thumbs.db
 
 # Local notes
 *.local.md
+
+# Documentation site build output
+/site/
+# Translation configs that docs/build.py generates and removes
+/.zensical.*.toml
