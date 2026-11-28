@@ -21,8 +21,6 @@ cdef class BaseConnection:
     cdef bint _auto_flow
     # Data was offered at zero connection credit, for DATA_BLOCKED.
     cdef bint _data_blocked
-    # Pad packets to the segment size while a server builds a GSO train.
-    cdef bint _padding
     cdef uint64_t _high
     cdef uint64_t _low
     cdef ng.ngtcp2_ccerr _ccerr

@@ -602,10 +602,6 @@ cdef class BaseConnection:
                     _MAX_GSO_BYTES // payload,
                     _MAX_GSO_SEGMENTS,
                 )
-            # ngtcp2 ends a GSO train at the first packet shorter than the
-            # path MTU, so a server pads while a train is possible; a client's
-            # requests stay small (ngtcp2's examples pad the same way).
-            self._padding = packets > 1 and not self.is_client
             capacity = max(min(payload * packets, burst), probe)
             buffer = _new_bytes(NULL, capacity)
             storage.path.local.addr = &storage.local_addrbuf.sa
