@@ -170,7 +170,8 @@ ngquic publishes final releases as `X.Y.Z`: increment `X` for incompatible
 public changes after 1.0, `Y` for backward-compatible functionality (and,
 before 1.0, intentional incompatible changes), and `Z` for fixes. Every
 release updates `src/ngquic/_version.py` and records the vendored ngtcp2,
-nghttp3 and AWS-LC versions.
+nghttp3 and AWS-LC versions. Its CHANGELOG section, dated, becomes the GitHub
+release notes, so write it for users.
 
 By contributing, you agree that your contribution is licensed under the
 project's [MIT License](LICENSE).
