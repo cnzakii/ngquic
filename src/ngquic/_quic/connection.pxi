@@ -255,9 +255,7 @@ cdef class Connection(BaseConnection):
         cdef ng.ngtcp2_vec vecs[_MAX_VECS]
         cdef ng.ngtcp2_ssize written, framed = -1
         cdef _ScheduledStream stream = self._active_head
-        cdef uint32_t flags = (
-            ng.NGTCP2_WRITE_STREAM_FLAG_PADDING if self._padding else 0
-        )
+        cdef uint32_t flags = 0
         cdef size_t count = 0
         cdef bint covers_end
         cdef int64_t stream_id = -1

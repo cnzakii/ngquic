@@ -4,8 +4,17 @@ User-visible changes to ngquic are recorded here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-28
+
+Built on ngtcp2 1.26.0, nghttp3 1.19.0 and AWS-LC 5.15.0, as 0.2.0.
+
 ### Fixed
 
+- With `gso=True`, a server padded every packet to the path MTU while a GSO
+  train was possible, so a 100-byte response left as 1444 bytes and waited
+  for pacing as long. Packets are no longer padded: ngtcp2 ends a train at
+  the first short packet, as quic-go does, so full packets still form
+  trains while DATAGRAMs that leave room in theirs go out one per send.
 - The Windows wheels typed `ngquic.udp` as available, though it is built only
   on Linux and macOS: its stub now declares nothing on Windows.
 

@@ -114,6 +114,22 @@ def test_gso_transmit_carries_several_equal_segments(network):
     )
 
 
+def test_a_small_reply_is_not_padded_for_gso(network):
+    # PMTUD probes are padded to the size they probe.
+    network.server_transport = TransportConfig(pmtud=False)
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+    stream_id = client.open_stream()
+    client.send_stream_data(stream_id, b"ask", end_stream=True)
+    network.run(lambda: network.events_of(network.server, StreamDataReceived))
+    network.server.send_stream_data(stream_id, bytes(100), end_stream=True)
+
+    transmits = network.server.datagrams_to_send(network.now + 0.001, gso=True)
+
+    assert transmits
+    assert all(len(t.data) < 300 for t in transmits)
+
+
 def test_by_default_each_transmit_carries_one_payload(network):
     client = network.connect()
     network.run(lambda: network.events_of(client, HandshakeCompleted))

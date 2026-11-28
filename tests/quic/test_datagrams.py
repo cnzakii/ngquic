@@ -24,6 +24,21 @@ def test_a_sender_can_use_datagrams_when_only_its_peer_advertises_support(networ
     ]
 
 
+def test_datagrams_are_not_padded_for_gso(network):
+    network.client_transport = TransportConfig(max_datagram_frame_size=1200)
+    # PMTUD probes are padded to the size they probe.
+    network.server_transport = TransportConfig(pmtud=False)
+    client = network.connect()
+    network.run(lambda: network.events_of(client, HandshakeConfirmed))
+    for _ in range(3):
+        network.server.send_datagram(bytes(100))
+
+    transmits = network.server.datagrams_to_send(network.now + 0.001, gso=True)
+
+    assert transmits
+    assert all(len(t.data) < 500 for t in transmits)
+
+
 def test_an_empty_datagram_is_delivered_as_a_message(network):
     network.server_transport = TransportConfig(max_datagram_frame_size=256)
     client = network.connect()

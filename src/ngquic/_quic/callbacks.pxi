@@ -55,9 +55,7 @@ cdef ng.ngtcp2_ssize _write_pkt(
     cdef int accepted
     cdef object item
     cdef bytes payload
-    cdef uint32_t datagram_flags = ng.NGTCP2_WRITE_DATAGRAM_FLAG_MORE | (
-        ng.NGTCP2_WRITE_DATAGRAM_FLAG_PADDING if connection._padding else 0
-    )
+    cdef uint32_t datagram_flags = ng.NGTCP2_WRITE_DATAGRAM_FLAG_MORE
 
     try:
         while True:

@@ -170,6 +170,23 @@ def test_request_without_body_gets_a_response_without_body(h3_network):
     )
 
 
+def test_a_small_response_is_not_padded_for_gso(h3_network):
+    # PMTUD probes are padded to the size they probe.
+    h3_network.server_transport = TransportConfig(pmtud=False)
+    client = connect_h3_client(h3_network)
+    # Past what the server sends after the handshake, such as session tickets.
+    h3_network.advance(0.1)
+    stream_id = client.send_request(REQUEST, end_stream=True)
+    h3_network.run(lambda: h3_network.events_of(h3_network.h3_server, RequestReceived))
+    h3_network.h3_server.send_response(stream_id, OK)
+    h3_network.h3_server.send_data(stream_id, bytes(100), end_stream=True)
+
+    transmits = h3_network.h3_server.datagrams_to_send(h3_network.now + 0.001, gso=True)
+
+    assert transmits
+    assert all(len(t.data) < 300 for t in transmits)
+
+
 def test_bodies_cross_in_both_directions_in_order(h3_network):
     payload = bytes(range(256)) * 4096
     _respond(h3_network, body=payload[::-1])
