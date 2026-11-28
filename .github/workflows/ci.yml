@@ -175,10 +175,10 @@ jobs:
           retention-days: 1
 
   # The QUIC interop runner (https://interop.seemann.io) against mature peers,
-  # each in both roles, with the base branch's endpoint run beside this one: a
-  # test fails the job only if it passed on the base and fails here twice, so
-  # a peer's own failures and the simulator's noise never do. Not required: a
-  # peer's latest image can still change between the two runs.
+  # each in both roles, and the base branch's endpoint on the tests that did
+  # not pass here: a test fails the job only if it passed on the base and
+  # fails here twice, so a peer's own failures and the simulator's noise never
+  # do. Not required: a peer's latest image can still change between the runs.
   interop:
     name: Interop, ngquic ${{ matrix.role }} with ${{ matrix.peer }}
     needs: interop-image
@@ -206,8 +206,6 @@ jobs:
       - name: Run the tests, and again those that regressed
         working-directory: ${{ runner.temp }}/runner
         run: |
-          ours=ngquic
-          [ -f "$RUNNER_TEMP/images/base.tar.gz" ] && ours=ngquic,ngquic-base
           # A test that fails against its only peer is not "unsupported".
           run() {
             if [ "$ROLE" = client ]; then pair=(--client "$2" --server "$PEER"); else pair=(--client "$PEER" --server "$2"); fi
@@ -216,8 +214,13 @@ jobs:
           }
           compare="$GITHUB_WORKSPACE/tests/interop/runner/compare.py"
           mkdir results
-          run first "$ours" onlyTests
-          regressed=$(python "$compare" results/first.json)
+          run first ngquic onlyTests
+          # Only a test that did not pass can have regressed.
+          unpassed=$(python "$compare" results/first.json --unpassed)
+          if [ -n "$unpassed" ] && [ -f "$RUNNER_TEMP/images/base.tar.gz" ]; then
+            run base ngquic-base "$unpassed"
+          fi
+          regressed=$(python "$compare" results/*.json)
           if [ -n "$regressed" ]; then
             echo "::warning::Retrying $regressed once"
             run retry ngquic "$regressed"
