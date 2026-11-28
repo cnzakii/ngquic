@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {#- The site has its own light and dark themes: tell the browser, so it does
+      not darken the page itself, and ask Dark Reader to leave it alone. -#}
+  <meta name="color-scheme" content="light dark">
+  <meta name="darkreader-lock">
+  {#- On a first visit nothing is stored yet, so the page would paint light
+      until the theme script runs and then switch: a flash in dark mode.
+      Store the option matching the system now, as the theme itself would
+      on load, so the header script applies it before the content paints. -#}
+  {% if config.theme.palette %}
+  <script>
+    (function () {
+      if (__md_get("__palette")) return
+      var options = {{ config.theme.palette | tojson }}
+      for (var index = 0; index < options.length; index++) {
+        var option = options[index]
+        if (option.media && matchMedia(option.media).matches) {
+          __md_set("__palette", {index: index, color: {
+            media: option.media,
+            scheme: option.scheme || "default",
+            primary: option.primary || "indigo",
+            accent: option.accent || "indigo"
+          }})
+          return
+        }
+      }
+    })()
+  </script>
+  {% endif %}
+{% endblock %}

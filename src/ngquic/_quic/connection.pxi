@@ -1,21 +1,9 @@
 cdef class Connection(BaseConnection):
-    """A QUIC connection whose application uses streams and DATAGRAMs directly."""
-
     # Fields and C methods are declared in connection.pxd.
 
     # ---- streams
 
     def open_stream(self, *, bint unidirectional=False):
-        """Open a stream; before the handshake only after 0-RTT resumption.
-
-        Returns:
-            The stream ID.
-
-        Raises:
-            StreamLimitError: If the peer allows no more streams of this type
-                yet; ``StreamsAvailable`` reports new credit.
-            ConnectionStateError: If the connection is closing or closed.
-        """
         cdef int64_t stream_id
         cdef int rv
         cdef _ScheduledStream stream
@@ -34,26 +22,6 @@ cdef class Connection(BaseConnection):
         return stream_id
 
     def send_stream_data(self, stream_id, data, *, bint end_stream=False):
-        """Queue data on a stream.
-
-        ``bytes`` are held without copying until the peer acknowledges them;
-        other buffers are copied once.
-
-        Args:
-            stream_id: The stream.
-            data: Bytes-like data, possibly empty.
-            end_stream: Whether this finishes the sending direction.
-
-        Returns:
-            ``False`` once the stream holds more than
-            ``stream_write_buffer_high`` bytes; wait for ``StreamWritable``
-            before queuing more.
-
-        Raises:
-            StreamStateError: If the stream does not exist or its sending
-                direction finished.
-            ConnectionStateError: If the connection is closing or closed.
-        """
         cdef _ScheduledStream stream = self._sendable(_stream_id(stream_id))
         cdef bint writable = self._enqueue(stream, data, end_stream)
 
@@ -61,14 +29,12 @@ cdef class Connection(BaseConnection):
         return writable
 
     def end_stream(self, stream_id):
-        """Finish the sending direction of a stream after its queued data."""
         cdef _ScheduledStream stream = self._sendable(_stream_id(stream_id))
 
         stream.fin_queued = True
         self._activate(stream)
 
     def reset_stream(self, stream_id, error_code):
-        """Abandon sending on a stream with RESET_STREAM; unsent data is dropped."""
         cdef int64_t sid = _stream_id(stream_id)
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
         cdef _ScheduledStream stream = <_ScheduledStream>self._existing(sid)
@@ -81,7 +47,6 @@ cdef class Connection(BaseConnection):
         self._deactivate(stream)
 
     def stop_sending(self, stream_id, error_code):
-        """Ask the peer to stop sending on a stream with STOP_SENDING."""
         cdef int64_t sid = _stream_id(stream_id)
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
         cdef int rv
@@ -92,18 +57,12 @@ cdef class Connection(BaseConnection):
             raise StreamStateError("this stream has no receiving direction")
 
     def consume_received_data(self, stream_id, amount):
-        """Return flow-control credit for data the application processed.
-
-        Only needed when ``TransportConfig.auto_flow_control`` is ``False``.
-        """
         self._consume_received(stream_id, amount)
 
     def queued_size(self, stream_id=None):
-        """Return bytes held for sending: unsent plus unacknowledged."""
         return self._held(stream_id)
 
     def send_capacity(self, stream_id=None):
-        """Return bytes the peer's flow control allows on a stream or the connection."""
         if self._conn == NULL:
             return 0
         if stream_id is None:
@@ -113,7 +72,6 @@ cdef class Connection(BaseConnection):
         )
 
     def stream_loss_count(self, stream_id):
-        """Return how many packets carrying this stream were declared lost."""
         if self._conn == NULL:
             return 0
         return ng.ngtcp2_conn_get_stream_loss_count2(self._conn, _stream_id(stream_id))
@@ -121,16 +79,6 @@ cdef class Connection(BaseConnection):
     # ---- datagrams
 
     def send_datagram(self, data):
-        """Queue an unreliable DATAGRAM frame.
-
-        Returns:
-            An ID reported by ``DatagramAcknowledged`` or ``DatagramLost``.
-
-        Raises:
-            DatagramError: If the peer does not accept DATAGRAM frames or
-                ``data`` exceeds ``max_datagram_size``.
-            ConnectionStateError: If the connection is closing or closed.
-        """
         cdef bytes payload = _owned_bytes(data)
         cdef object limit
 
@@ -144,7 +92,6 @@ cdef class Connection(BaseConnection):
 
     @property
     def max_datagram_size(self):
-        """Largest DATAGRAM payload sendable now; ``None`` if the peer accepts none."""
         cdef int64_t limit = self._datagram_limit()
 
         return None if limit < 0 else limit
@@ -153,14 +100,12 @@ cdef class Connection(BaseConnection):
 
     @property
     def bidi_streams_available(self):
-        """Bidirectional streams that can be opened now."""
         if self._conn == NULL:
             return 0
         return ng.ngtcp2_conn_get_streams_bidi_left2(self._conn)
 
     @property
     def uni_streams_available(self):
-        """Unidirectional streams that can be opened now."""
         if self._conn == NULL:
             return 0
         return ng.ngtcp2_conn_get_streams_uni_left2(self._conn)

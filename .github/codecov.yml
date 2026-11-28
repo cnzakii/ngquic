@@ -1,6 +1,7 @@
-# Coverage may drop by up to 1% from the base commit: each new native failure
-# path that tests cannot reach lowers the total slightly. fail_under in
-# pyproject.toml stays the hard floor.
+# Coverage may drop by up to 1% from the base commit, the margin fail_under in
+# pyproject.toml keeps below the measured total (CONTRIBUTING.md): each new
+# native failure path that tests cannot reach lowers the total slightly.
+# fail_under stays the hard floor.
 coverage:
   status:
     project:

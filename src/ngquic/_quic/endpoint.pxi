@@ -1,19 +1,4 @@
 cdef class Endpoint:
-    """Routes datagrams of one local address to their connections.
-
-    Both clients and servers use an endpoint. Drive an endpoint and all of its
-    connections from one thread or task at a time.
-
-    Args:
-        local_addr: Address the datagrams arrive at and leave from, port
-            included, such as the bound socket's ``getsockname()``.
-        config: Endpoint behavior.
-
-    Raises:
-        TypeError: If an argument has the wrong type.
-        ValueError: If ``local_addr`` or a configuration value is invalid.
-    """
-
     # Fields and C methods are declared in endpoint.pxd.
 
     def __init__(self, local_addr, config=None):
@@ -64,7 +49,6 @@ cdef class Endpoint:
 
     @property
     def connections(self):
-        """Number of connections that still hold protocol state."""
         return len(self._connections)
 
     def connect(
@@ -72,39 +56,6 @@ cdef class Endpoint:
         transport=None, session_ticket=None, token=None, local_addr=None,
         version=Version.V1, h3=None,
     ):
-        """Start a client connection.
-
-        The first flight is ready from ``Connection.datagrams_to_send()``.
-
-        Args:
-            remote_addr: Server address.
-            now: Current monotonic time in seconds.
-            tls: Client TLS context.
-            server_name: Name sent as SNI and, with ``tls.check_hostname``,
-                matched against the server certificate. An IP address is
-                matched but not sent; other names are encoded with IDNA,
-                as ``ssl`` encodes them, without a trailing dot.
-            transport: Transport behavior.
-            session_ticket: Ticket from ``SessionTicketReceived`` to resume,
-                allowing 0-RTT streams before the handshake completes. Pass
-                it only for the ``server_name`` it was received from:
-                resumption skips the certificate check, as with ``ssl``.
-            token: Token from ``NewTokenReceived`` that lets the server skip
-                address validation.
-            local_addr: Local address of the path; defaults to the
-                endpoint's. A specific address, such as ``getsockname()``
-                of a socket connected to ``remote_addr``.
-            version: QUIC version of the first flight.
-            h3: ``H3Config`` to speak HTTP/3 on this connection; the result
-                is then an ``H3Connection``. ``tls`` must offer ``"h3"``.
-
-        Returns:
-            A ``Connection``, or an ``H3Connection`` when ``h3`` is given.
-
-        Raises:
-            TypeError: If an argument has the wrong type.
-            ValueError: If an argument or configuration value is invalid.
-        """
         if tls is None or tls._server:
             raise ValueError("tls must be a client TLSContext")
         if tls._check_hostname and server_name is None:
@@ -124,24 +75,6 @@ cdef class Endpoint:
     def receive_datagram(
         self, data, remote_addr, double now, *, local_addr=None, int ecn=0,
     ):
-        """Process a UDP payload that arrived from ``remote_addr``.
-
-        Args:
-            data: One UDP payload; split a GRO batch before passing it in.
-            remote_addr: Address it came from.
-            now: Current monotonic time in seconds.
-            local_addr: Address it arrived at; defaults to the endpoint's.
-            ecn: ECN bits from the IP header.
-
-        Returns:
-            The connection that consumed it, whose next ``events()`` raises
-            ``InternalError`` if a protocol callback failed and dropped it;
-            an ``Incoming`` connection attempt to accept or refuse; or
-            ``None`` if it was dropped, answered statelessly, or belongs to
-            an ``Incoming`` already returned and not yet decided (a
-            retransmitted Initial or 0-RTT), which then processes it on
-            ``accept()``.
-        """
         cdef Py_buffer view
         cdef ng.ngtcp2_tstamp ts = _timestamp(now)
         cdef ng.ngtcp2_addr remote, local
@@ -171,7 +104,6 @@ cdef class Endpoint:
             PyBuffer_Release(&view)
 
     def datagrams_to_send(self):
-        """Return stateless replies: Version Negotiation, Retry, refusals and resets."""
         result = self._stateless
         self._stateless = []
         return result
@@ -434,49 +366,18 @@ cdef class Endpoint:
 
 
 cdef class Incoming:
-    """A client's first datagram for a connection that does not exist yet.
-
-    Decide once: ``accept()``, ``retry()``, ``refuse()`` or ``ignore()``.
-
-    Attributes:
-        remote_addr: Client address.
-        local_addr: Local address it arrived at.
-        version: QUIC version the client chose.
-        remote_address_validated: Whether a valid Retry or NEW_TOKEN token
-            proves the client owns ``remote_addr``.
-    """
-
     # Fields and C methods are declared in endpoint.pxd.
 
     def __init__(self):
         raise TypeError("Incoming objects come from Endpoint.receive_datagram()")
 
     def accept(self, *, TLSContext tls, transport=None, h3=None):
-        """Create the server connection and process the client's datagrams.
-
-        Args:
-            tls: Server TLS context.
-            transport: Transport behavior.
-            h3: ``H3Config`` to speak HTTP/3 on this connection; the result
-                is then an ``H3Connection``. ``tls`` must select ``"h3"``.
-
-        Returns:
-            The connection, or ``None`` if ngtcp2 dropped the attempt or
-            required address validation, in which case a Retry was queued
-            on the endpoint.
-
-        Raises:
-            ValueError: If ``tls`` is not a server context or a configuration
-                value is invalid.
-            ConnectionStateError: If this attempt was already decided.
-        """
         self._decide()
         if tls is None or not tls._server:
             raise ValueError("tls must be a server TLSContext")
         return BaseConnection._server(_connection_type(h3), self, tls, transport, h3)
 
     def retry(self):
-        """Ask the client to prove its address with a Retry packet."""
         cdef ng.ngtcp2_cid scid
         cdef uint8_t token[ng.NGTCP2_CRYPTO_MAX_RETRY_TOKENLEN2]
         cdef uint8_t buffer[ng.NGTCP2_MAX_UDP_PAYLOAD_SIZE]
@@ -500,14 +401,12 @@ cdef class Incoming:
             endpoint._queue(buffer, written, self.remote_addr, self.local_addr)
 
     def refuse(self, error_code=ErrorCode.CONNECTION_REFUSED):
-        """Close the attempt with a CONNECTION_CLOSE carrying ``error_code``."""
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
 
         self._decide()
         self._endpoint._refuse(&self._hd, code, self.remote_addr, self.local_addr)
 
     def ignore(self):
-        """Drop the attempt without answering."""
         self._decide()
 
     cdef int _decide(self) except -1:

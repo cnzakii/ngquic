@@ -1,0 +1,14 @@
+# Values the Simplified Chinese site changes in zensical.toml. docs/build.py
+# derives everything else (docs_dir, site_dir, site_url, theme.language).
+
+site_description = "快速的 Sans-I/O QUIC 与 HTTP/3 Python 库。"
+
+# Navigation section labels, keyed by the English label.
+[sections]
+"Learn" = "入门"
+"API reference" = "API 参考"
+"Project" = "项目"
+
+# Color scheme toggle labels, in the order of [[project.theme.palette]].
+[palette]
+toggle_names = ["切换到深色模式", "切换到浅色模式"]

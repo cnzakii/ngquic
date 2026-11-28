@@ -13,15 +13,13 @@ P-256 certificate; both negotiate AES-128-GCM where the CPU has AES
 instructions. Memory per idle connection is what tracemalloc sees: Python
 objects, and for ngquic also ngtcp2 and nghttp3, which allocate through
 Python; neither stack's TLS library is counted. Run on an idle machine, and
-quote numbers only with the environment the report prints.
+quote numbers only with the environment they record.
 
-    uv run --group compare python benchmarks/compare.py
+    uv run --locked --group compare python benchmarks/compare.py --readme
 """
 
 import argparse
 import gc
-import json
-import platform
 import statistics
 import sys
 import time
@@ -29,6 +27,8 @@ import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 
+import environment
+import render_results
 from aioquic import __version__ as aioquic_version
 from aioquic.buffer import Buffer
 from aioquic.h3 import events as aio_h3
@@ -55,9 +55,11 @@ from ngquic.h3 import (
     H3Config,
     RequestReceived,
     ResponseReceived,
+    nghttp3_version,
 )
 
 CERTS = Path(__file__).parents[1] / "tests" / "support" / "certs"
+README = Path(__file__).parents[1] / "README.md"
 CLIENT, SERVER = ("127.0.0.1", 50000), ("127.0.0.1", 4433)
 WINDOW = 16 << 20
 # secnetperf's request-response example: -up:512 -down:4kb.
@@ -523,9 +525,6 @@ def idle_memory(kind: type[Pair], count: int) -> dict:
     return {"KiB/connection": traced / count / 2 / 1024}
 
 
-LOWER_IS_BETTER = {"P50 µs", "P99 µs", "wire bytes/request", "KiB/connection"}
-
-
 def scenarios(quick: bool) -> list[tuple[str, Callable[[type[Pair]], dict], bool]]:
     scale = 10 if quick else 1
     bulk = (64 << 20) // scale
@@ -574,122 +573,40 @@ def measure(rounds: int, quick: bool, stacks_wanted: set[str], only: str) -> lis
     return rows
 
 
-def environment() -> dict:
+def versions() -> dict[str, str]:
+    tls, _, tls_version = ngquic.tls_version().partition(" ")
     return {
-        "python": sys.version.split()[0],
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "processor": platform.processor(),
         "ngquic": ngquic.__version__,
         "ngtcp2": ngquic.ngtcp2_version(),
-        "tls": ngquic.tls_version(),
+        "nghttp3": nghttp3_version(),
+        tls: tls_version,
         "aioquic": aioquic_version,
     }
-
-
-def advantage(row: dict) -> float:
-    """How many times better ngquic does, whichever way the metric points."""
-    ratio = row["ngquic"] / row["aioquic"]
-    return 1 / ratio if row["metric"] in LOWER_IS_BETTER else ratio
-
-
-# One table per dimension, so each compares like with like:
-# (title, lower is better, [(scenario, metric, row label)]).
-TABLES = [
-    ("Handshakes per second", False, [("handshakes", "handshakes/s", "")]),
-    (
-        "Bulk transfer, Gbit/s",
-        False,
-        [("download", "Gbit/s", "download"), ("upload", "Gbit/s", "upload")],
-    ),
-    (
-        "Requests per second",
-        False,
-        [
-            ("requests, 1 in flight", "requests/s", "1 in flight"),
-            ("requests, 64 in flight", "requests/s", "64 in flight"),
-        ],
-    ),
-    (
-        "Request latency, µs",
-        True,
-        [
-            ("requests, 1 in flight", "P50 µs", "P50, 1 in flight"),
-            ("requests, 1 in flight", "P99 µs", "P99, 1 in flight"),
-            ("requests, 64 in flight", "P50 µs", "P50, 64 in flight"),
-            ("requests, 64 in flight", "P99 µs", "P99, 64 in flight"),
-        ],
-    ),
-    ("Datagrams per second", False, [("datagrams", "datagrams/s", "")]),
-    (
-        "Memory per idle connection, KiB",
-        True,
-        [("idle connections", "KiB/connection", "")],
-    ),
-    (
-        "Bytes on the wire per request",
-        True,
-        [
-            ("requests, 1 in flight", "wire bytes/request", "1 in flight"),
-            ("requests, 64 in flight", "wire bytes/request", "64 in flight"),
-        ],
-    ),
-]
-
-
-def number(value: float) -> str:
-    return f"{value:,.0f}" if value >= 100 else f"{value:#.3g}"
-
-
-def report(rows: list[dict], env: dict) -> str:
-    found = {(row["protocol"], row["scenario"], row["metric"]): row for row in rows}
-    stacks = [stack for stack in ("ngquic", "aioquic") if stack in rows[0]]
-    both = len(stacks) == 2
-    lines = []
-    for title, lower, entries in TABLES:
-        table = [
-            (f"{protocol}, {label}" if label else protocol, found[key])
-            for protocol in STACKS
-            for scenario, metric, label in entries
-            if (key := (protocol, scenario, metric)) in found
-        ]
-        if not table:
-            continue
-        direction = "lower" if lower else "higher"
-        header = ["", *stacks, *(["ngquic advantage"] if both else [])]
-        lines += [
-            f"**{title}** ({direction} is better)",
-            "",
-            "| " + " | ".join(header) + " |",
-            "|---|" + "---:|" * (len(header) - 1),
-        ]
-        for label, row in table:
-            cells = [number(row[stack]) for stack in stacks]
-            if both:
-                cells.append(f"{advantage(row):.1f}\N{MULTIPLICATION SIGN}")
-            lines.append(f"| {label} | " + " | ".join(cells) + " |")
-        lines.append("")
-    lines.append(", ".join(f"{key} {value}" for key, value in env.items()))
-    return "\n".join(lines)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rounds", type=int, default=5)
     parser.add_argument("--quick", action="store_true", help="a tenth of the work")
-    parser.add_argument("--json", type=Path, help="write the results as JSON")
+    parser.add_argument(
+        "--readme", action="store_true", help="write the tables into README.md"
+    )
     parser.add_argument(
         "--stack", choices=["ngquic", "aioquic"], help="measure one stack only"
     )
     parser.add_argument("--only", default="", help="scenarios whose name has this")
     args = parser.parse_args()
-    env = environment()
+    if args.readme and (args.quick or args.stack or args.only):
+        sys.exit("--readme publishes a full run only")
+    env = environment.collect(versions())
     stacks = {args.stack} if args.stack else {"ngquic", "aioquic"}
     rows = measure(args.rounds, args.quick, stacks, args.only)
-    print(report(rows, env))
-    if args.json:
-        args.json.write_text(
-            json.dumps({"environment": env, "results": rows}, indent=2)
+    section = render_results.render({"environment": env, "results": rows})
+    print(section, end="")
+    if args.readme:
+        readme = README.read_text(encoding="utf-8")
+        README.write_text(
+            render_results.replace_marked(readme, section), encoding="utf-8"
         )
 
 

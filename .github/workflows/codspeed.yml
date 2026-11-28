@@ -5,6 +5,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  # CodSpeed starts its backtests of earlier commits through manual runs.
   workflow_dispatch:
 
 permissions:

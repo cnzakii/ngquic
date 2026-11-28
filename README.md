@@ -1,8 +1,9 @@
-<p align="center">
-  <img src="https://github.com/cnzakii/ngquic/raw/refs/heads/main/docs/site/assets/ngquic.svg" width="144" height="144" alt="ngquic logo">
-</p>
-
-<h1 align="center">ngquic</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://github.com/cnzakii/ngquic/raw/refs/heads/main/docs/overrides/assets/brand/ngquic-lockup-dark.svg">
+    <img src="https://github.com/cnzakii/ngquic/raw/refs/heads/main/docs/overrides/assets/brand/ngquic-lockup-light.svg" height="56" alt="ngquic">
+  </picture>
+</h1>
 
 <p align="center">
   <strong>A fast <a href="https://sans-io.readthedocs.io/">Sans-I/O</a> QUIC and HTTP/3 library for Python, powered by <a href="https://github.com/ngtcp2/ngtcp2">ngtcp2</a> and <a href="https://github.com/ngtcp2/nghttp3">nghttp3</a>.</strong>
@@ -242,69 +243,85 @@ NewReno, 16 MiB flow-control windows, the same ECDSA P-256 certificate, and
 AES-128-GCM. Each table compares one dimension; the last column is how many
 times better ngquic does.
 
+<!-- benchmark:start -->
+
 **Handshakes per second** (higher is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
-| QUIC | 4,406 | 997 | 4.4× |
-| HTTP/3 | 4,061 | 936 | 4.3× |
+| QUIC | 4,435 | 989 | 4.5× |
+| HTTP/3 | 3,987 | 867 | 4.6× |
 
 **Bulk transfer, Gbit/s** (higher is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
-| QUIC, download | 10.3 | 0.255 | 40.2× |
-| QUIC, upload | 8.96 | 0.248 | 36.1× |
-| HTTP/3, download | 9.81 | 0.200 | 49.0× |
-| HTTP/3, upload | 9.83 | 0.210 | 46.7× |
+| QUIC, download | 10.3 | 0.251 | 41.2× |
+| QUIC, upload | 9.98 | 0.249 | 40.0× |
+| HTTP/3, download | 9.50 | 0.213 | 44.5× |
+| HTTP/3, upload | 9.71 | 0.216 | 44.9× |
 
 **Requests per second** (higher is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
-| QUIC, 1 in flight | 95,730 | 3,077 | 31.1× |
-| QUIC, 64 in flight | 163,388 | 2,033 | 80.4× |
-| HTTP/3, 1 in flight | 67,031 | 2,555 | 26.2× |
-| HTTP/3, 64 in flight | 115,016 | 1,839 | 62.5× |
+| QUIC, 1 in flight | 89,019 | 3,044 | 29.2× |
+| QUIC, 64 in flight | 158,890 | 2,024 | 78.5× |
+| HTTP/3, 1 in flight | 64,010 | 2,597 | 24.7× |
+| HTTP/3, 64 in flight | 106,322 | 1,853 | 57.4× |
 
 <details>
-<summary>Request latency, datagrams, and memory per idle connection</summary>
+<summary>Request latency, datagrams, memory, and bytes on the wire</summary>
 
 **Request latency, µs** (lower is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
-| QUIC, P50, 1 in flight | 9.88 | 322 | 32.6× |
-| QUIC, P99, 1 in flight | 11.7 | 646 | 55.4× |
-| QUIC, P50, 64 in flight | 374 | 30,683 | 81.9× |
-| QUIC, P99, 64 in flight | 472 | 52,599 | 111.4× |
-| HTTP/3, P50, 1 in flight | 14.0 | 389 | 27.7× |
-| HTTP/3, P99, 1 in flight | 21.1 | 759 | 35.9× |
-| HTTP/3, P50, 64 in flight | 532 | 34,203 | 64.3× |
-| HTTP/3, P99, 64 in flight | 670 | 54,634 | 81.6× |
+| QUIC, P50, 1 in flight | 10.1 | 325 | 32.1× |
+| QUIC, P99, 1 in flight | 13.2 | 725 | 54.7× |
+| QUIC, P50, 64 in flight | 383 | 31,078 | 81.1× |
+| QUIC, P99, 64 in flight | 509 | 51,375 | 100.9× |
+| HTTP/3, P50, 1 in flight | 15.0 | 383 | 25.6× |
+| HTTP/3, P99, 1 in flight | 19.2 | 608 | 31.7× |
+| HTTP/3, P50, 64 in flight | 572 | 34,053 | 59.5× |
+| HTTP/3, P99, 64 in flight | 723 | 51,806 | 71.6× |
 
 **Datagrams per second** (higher is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
-| QUIC | 787,439 | 32,644 | 24.1× |
+| QUIC | 798,645 | 32,540 | 24.5× |
 
 **Memory per idle connection, KiB** (lower is better)
 
 |  | ngquic | aioquic | ngquic advantage |
 |---|---:|---:|---:|
 | QUIC | 27.6 | 95.1 | 3.4× |
-| HTTP/3 | 45.8 | 104 | 2.3× |
+| HTTP/3 | 46.1 | 104 | 2.3× |
+
+**Bytes on the wire per request** (lower is better)
+
+|  | ngquic | aioquic | ngquic advantage |
+|---|---:|---:|---:|
+| QUIC, 1 in flight | 4,836 | 4,783 | 1.0× |
+| QUIC, 64 in flight | 4,775 | 4,785 | 1.0× |
+| HTTP/3, 1 in flight | 4,860 | 4,806 | 1.0× |
+| HTTP/3, 64 in flight | 4,795 | 4,809 | 1.0× |
 
 </details>
 
-Both libraries put about 4.8 KB on the wire per request.
+_Environment: ngquic 0.2.1 · ngtcp2 1.26.0 · nghttp3 1.19.0 · AWS-LC 5.15.0 · aioquic 1.8.0 · CPython 3.13.12 · Apple M4 · Darwin arm64 · 2026-11-28_
 
-_Environment: ngquic 0.1.0 · ngtcp2 1.26.0 · nghttp3 1.19.0 · AWS-LC 5.15.0 · aioquic 1.8.0 · CPython 3.13.12 · Apple M4 · macOS 27.2.1 · 2026-11-22_
+<!-- benchmark:end -->
 
 These are protocol-layer measurements. End-to-end gains depend on how much of
 your program's time goes to QUIC and HTTP/3 processing rather than sockets,
 system calls, and application work.
+
+## Related projects
+
+[h11r](https://github.com/cnzakii/h11r) (HTTP/1.1) and [ngh2](https://github.com/cnzakii/ngh2) (HTTP/2)
+are the other Sans-I/O protocol libraries for Python in this family.
 
 ## Contributing
 

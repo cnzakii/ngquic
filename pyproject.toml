@@ -72,6 +72,11 @@ coverage = [
     "coverage>=7.9,<8",
     "cython>=3.1,<4",
 ]
+docs = [
+    "mkdocstrings-python>=2.0.5,<3",
+    "tomli-w>=1.2,<2",
+    "zensical>=0.0.51,<0.1",
+]
 
 [tool.scikit-build]
 minimum-version = "build-system.requires"
@@ -164,6 +169,10 @@ extend-exclude = ["vendor"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "UP", "B", "C4", "SIM", "PIE", "PERF", "PYI", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# Docstrings live in the stubs: the compiled modules carry signatures only.
+"*.pyi" = ["PYI021"]
+
 [tool.pytest]
 minversion = "9.0"
 testpaths = ["tests"]
@@ -204,9 +213,10 @@ exclude_lines = [
     # Cython traces no line while the GIL is released.
     '^\s*with nogil:\s*$',
 ]
-# Measured 96.10%; most of the rest are native failures (allocation, internal
-# errors) that need fault injection to reach.
-fail_under = 95
+# One point below the measured total, rounded down, as CONTRIBUTING.md says:
+# main measured 95.51%. Most of the rest are native failures (allocation,
+# internal errors) that need fault injection to reach.
+fail_under = 94
 
 [tool.ty.src]
 include = ["src", "tests"]

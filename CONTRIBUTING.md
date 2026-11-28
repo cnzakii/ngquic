@@ -37,27 +37,42 @@ uv build
 ```
 
 CI runs the same checks and adds what a laptop cannot: the tests on every
-supported Python and platform and under AddressSanitizer and UBSan, a
-coverage floor over the traced Cython modules, a wheel rebuilt from the
-sdist, [h3spec](https://github.com/kazu-yamamoto/h3spec) against the interop
-peer (a failure outside its expected-failure table fails), and on pull
-requests the
-[QUIC interop runner](https://github.com/quic-interop/quic-interop-runner)
+supported Python and platform, in Alpine for the musllinux wheels, and under
+AddressSanitizer and UBSan, a coverage floor over the traced Cython modules,
+a wheel rebuilt from the sdist,
+[h3spec](https://github.com/kazu-yamamoto/h3spec) against the interop peer
+(a failure outside its expected-failure table fails), and on pull requests
+the [QUIC interop runner](https://github.com/quic-interop/quic-interop-runner)
 against other implementations, with the base branch's endpoint beside it:
 a test fails the job only if it passed on the base and fails twice here.
 The interop jobs are not required checks; a weekly run against every
 implementation catches regressions on main. Changes to the build or the
 vendored libraries also build every release wheel.
 
-CodSpeed measures the benchmarks on every pull request; run them locally
-with `uv run --locked pytest tests/benchmarks --codspeed`. A comparison with
-aioquic (throughput, requests per second with latency, handshakes,
-datagrams, memory per idle connection) runs by hand with
-`uv run --locked --group compare python benchmarks/compare.py`.
+The coverage floor, `fail_under` in `pyproject.toml`, is the measured total
+rounded down, minus one point, and never below 90. The pull request that
+raises the total raises the floor to match; the floor is never lowered.
+Codecov likewise fails a pull request that lowers the total by more than one
+point from its base.
 
 Add or update tests for observable behavior changes. Keep public exports,
-type stubs, documentation and native behavior synchronized. Include
-reproducible measurements for performance claims.
+type stubs, documentation and native behavior synchronized.
+
+## Documentation
+
+The site is built with Zensical from `zensical.toml`. English pages live in
+`docs/en` and are the source; every other language mirrors them page for page
+under `docs/<lang>`, as [docs/translating/README.md](docs/translating/README.md)
+describes. The API reference is generated from the type stubs, and tutorial
+code is included from `examples/`, which `tests/test_examples.py` runs. Build
+every language into `site/` and preview them together:
+
+```console
+uv run --locked --group docs python docs/build.py --strict
+python -m http.server --directory site
+```
+
+Theme colors, fonts and the logo live in `docs/overrides/assets`.
 
 ## Code Conventions
 
@@ -164,6 +179,41 @@ a test passes with an impossible input.
   lifecycle or a wire format, break the code once by hand and confirm that a
   test fails.
 
+## Benchmarks
+
+CodSpeed measures the benchmarks in `tests/benchmarks` on every pull request
+and reports changes against `main`. Run them locally with:
+
+```console
+uv run --locked pytest tests/benchmarks --codspeed
+```
+
+The comparison the README publishes, `benchmarks/compare.py`, runs ngquic
+against aioquic: a client and a server of one library joined in memory on a
+virtual clock, so the numbers are protocol work on one core, without sockets
+or an event loop. It measures handshakes, bulk transfer, requests per second
+with their latency, datagrams, memory per idle connection and bytes on the
+wire, each the median of five rounds after a warm-up; its module docstring
+lists the terms both libraries are held to.
+
+`compare.py --readme` writes the README's tables and environment line
+between `<!-- benchmark:start -->` and `<!-- benchmark:end -->`; never edit
+them by hand. Measure a committed checkout on an otherwise idle machine:
+
+```console
+uv run --locked --group compare python benchmarks/compare.py --readme
+```
+
+`benchmarks/environment.py` records the environment with the results: the
+CPU model, the operating system and architecture, the Python version and
+implementation and whether it is free-threaded, the measured libraries'
+versions and the date. It never records host or user names, paths, the
+interpreter's location or the kernel release, and `--readme` refuses a
+partial run.
+
+Refresh the results for each release, and include before and after
+measurements in a pull request that claims a performance change.
+
 ## Releases
 
 ngquic publishes final releases as `X.Y.Z`: increment `X` for incompatible
@@ -171,7 +221,13 @@ public changes after 1.0, `Y` for backward-compatible functionality (and,
 before 1.0, intentional incompatible changes), and `Z` for fixes. Every
 release updates `src/ngquic/_version.py` and records the vendored ngtcp2,
 nghttp3 and AWS-LC versions. Its CHANGELOG section, dated, opens the GitHub
-release notes, above the list of pull requests, so write it for users.
+release notes, above the list of pull requests, so write it for users;
+`python3 .github/scripts/release_notes.py X.Y.Z` prints the notes as they
+will appear, and the release stops before publishing if the section is
+missing.
+
+Wheels are built for 64-bit CPython on Linux (manylinux and musllinux),
+macOS and Windows, each on x86_64 and Arm64; 32-bit wheels are not built.
 
 By contributing, you agree that your contribution is licensed under the
 project's [MIT License](LICENSE).

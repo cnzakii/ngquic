@@ -1,11 +1,4 @@
 cdef class Transmit:
-    """UDP payloads ready to send to one address.
-
-    ``data`` is one UDP payload, or with ``datagrams_to_send(gso=True)``
-    several of ``segment_size`` bytes, the last one possibly shorter, to send
-    as one GSO train.
-    """
-
     # Fields are declared in transmit.pxd.
 
     __match_args__ = ("data", "remote_addr", "segment_size")

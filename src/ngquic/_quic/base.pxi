@@ -1,13 +1,4 @@
 cdef class BaseConnection:
-    """What every QUIC connection offers, whatever runs on its streams.
-
-    Connections come from ``Endpoint.connect()`` and ``Incoming.accept()``:
-    ``Connection`` exposes raw streams, ``H3Connection`` HTTP/3. After feeding
-    input, read ``events()``, then send ``datagrams_to_send()`` and re-arm the
-    timer from ``get_timer()``. Peer misbehavior never raises; it ends the
-    connection with ``ConnectionTerminated``.
-    """
-
     # Fields and C methods are declared in base.pxd.
 
     def __cinit__(self):
@@ -529,16 +520,6 @@ cdef class BaseConnection:
     # ---- driving
 
     def events(self):
-        """Return and clear the events produced since the last call.
-
-        Returns:
-            Events in protocol order.
-
-        Raises:
-            Exception: Once, what failed while the endpoint delivered a
-                datagram to this connection: ``InternalError`` when a
-                protocol callback failed, which dropped the connection.
-        """
         error = self._deferred_error
         if error is not None:
             self._deferred_error = None
@@ -548,24 +529,6 @@ cdef class BaseConnection:
         return result
 
     def datagrams_to_send(self, double now, *, int max_datagrams=64, bint gso=False):
-        """Return UDP payloads to send now.
-
-        Pacing may hold packets back; ``get_timer()`` covers the moment they
-        become due.
-
-        Args:
-            now: Current monotonic time in seconds.
-            max_datagrams: Upper bound of UDP payloads returned.
-            gso: Whether a ``Transmit`` may carry several payloads, for a
-                socket that sends them with UDP generic segmentation offload
-                (Linux ``UDP_SEGMENT``); by default each carries exactly one.
-
-        Returns:
-            Transmits in sending order.
-
-        Raises:
-            ValueError: If ``max_datagrams`` is not positive.
-        """
         cdef ng.ngtcp2_tstamp ts = self._clock(now)
         cdef ng.ngtcp2_path_storage storage
         cdef ng.ngtcp2_pkt_info info
@@ -644,11 +607,6 @@ cdef class BaseConnection:
         return result
 
     def get_timer(self):
-        """Return when ``handle_timer()`` must run, on the clock of ``now``.
-
-        Returns:
-            Monotonic time in seconds, or ``None`` when no timer is needed.
-        """
         cdef uint64_t expiry
 
         if self._state == _CLOSED:
@@ -663,15 +621,6 @@ cdef class BaseConnection:
         return _deadline(expiry)
 
     def handle_timer(self, double now):
-        """Run due timers: loss recovery, acknowledgements, idle and closing.
-
-        A call before ``get_timer()`` is due does nothing. Event loops may fire
-        a timer slightly early (asyncio by up to its clock resolution), so a
-        timer callback passes ``max(deadline, now)`` with the ``deadline`` it
-        was armed for. Never a fresh ``get_timer()``: input since arming can
-        move the deadline later, and a ``now`` past the real time expires
-        timers early and stays, since time never goes back here.
-        """
         cdef ng.ngtcp2_tstamp ts = self._clock(now)
         cdef int rv
 
@@ -694,19 +643,6 @@ cdef class BaseConnection:
     # ---- control
 
     def close(self, error_code=0, reason=b"", *, bint application=True):
-        """Close the connection immediately with CONNECTION_CLOSE.
-
-        QUIC has no graceful close at the transport layer; finish streams
-        first or use the application protocol's own shutdown. The packet is
-        produced by the next ``datagrams_to_send()``. Closing a connection
-        that is already closing does nothing.
-
-        Args:
-            error_code: Application error code, or a transport ``ErrorCode``
-                when ``application`` is ``False``.
-            reason: Short diagnostic reason phrase.
-            application: Whether ``error_code`` is an application code.
-        """
         cdef uint64_t code = _uint(error_code, "error_code", _MAX_VARINT)
         cdef bytes phrase = _reason_bytes(reason)
 
@@ -733,24 +669,6 @@ cdef class BaseConnection:
         )
 
     def migrate(self, local_addr, double now, *, bint validate=True):
-        """Move a client connection to a new local address.
-
-        Datagrams the new socket receives are then passed with its address
-        as ``local_addr``.
-
-        Args:
-            local_addr: New local address, a specific one with its port;
-                the remote address is unchanged.
-            now: Current monotonic time in seconds.
-            validate: Whether to validate the new path before using it.
-
-        Raises:
-            ConnectionStateError: If migration is not possible now: before
-                the handshake is confirmed, when the peer disabled active
-                migration, or without a spare connection ID.
-            ValueError: If ``local_addr`` is the current local address, an
-                unspecified one such as ``0.0.0.0``, or names no port.
-        """
         cdef ng.ngtcp2_tstamp ts = self._clock(now)
         cdef ng.ngtcp2_sockaddr_union local
         cdef ng.ngtcp2_path path
@@ -783,7 +701,6 @@ cdef class BaseConnection:
             raise _native_error(rv)
 
     def update_key(self, double now):
-        """Start a key update; ngtcp2 also updates keys itself before AEAD limits."""
         cdef int rv
 
         self._require_open()
@@ -792,20 +709,6 @@ cdef class BaseConnection:
             raise ConnectionStateError("a key update is not possible now")
 
     def select_tls_context(self, TLSContext tls not None, double now):
-        """Continue a handshake paused at ``ClientHelloReceived``.
-
-        ``tls`` supplies the certificate, ALPN choice and 0-RTT setting.
-        Client certificate checks and session tickets stay with the context
-        the connection was accepted with.
-
-        Args:
-            tls: Server context to complete the handshake with.
-            now: Current monotonic time in seconds.
-
-        Raises:
-            ConnectionStateError: If no certificate selection is pending.
-            ValueError: If ``tls`` is not a server context.
-        """
         self._require_open()
         if self._tls_pause != _PAUSE_SELECT:
             raise ConnectionStateError("no certificate selection is pending")
@@ -824,16 +727,6 @@ cdef class BaseConnection:
         self._resume_handshake(now)
 
     def verify_peer_certificate(self, bint accepted, double now):
-        """Continue a handshake paused at ``PeerCertificateReceived``.
-
-        Args:
-            accepted: Whether the peer's certificate chain is trusted; a
-                rejection fails the handshake with a bad_certificate alert.
-            now: Current monotonic time in seconds.
-
-        Raises:
-            ConnectionStateError: If no peer verification is pending.
-        """
         self._require_open()
         if self._tls_pause != _PAUSE_VERIFY:
             raise ConnectionStateError("no peer verification is pending")
@@ -844,26 +737,22 @@ cdef class BaseConnection:
 
     @property
     def state(self):
-        """Lifecycle state as ``ConnectionState``."""
         return _STATES[self._state]
 
     @property
     def local_addr(self):
-        """Local address of the current path."""
         if self._conn == NULL:
             return self._initial_local
         return self._local_cache.get(&ng.ngtcp2_conn_get_path2(self._conn).local)
 
     @property
     def remote_addr(self):
-        """Remote address of the current path."""
         if self._conn == NULL:
             return self._initial_remote
         return self._remote_cache.get(&ng.ngtcp2_conn_get_path2(self._conn).remote)
 
     @property
     def version(self):
-        """Negotiated QUIC version; ``None`` before it is known and after close."""
         cdef uint32_t value
 
         if self._conn == NULL:
@@ -873,7 +762,6 @@ cdef class BaseConnection:
 
     @property
     def alpn_protocol(self):
-        """Negotiated application protocol, or ``None`` before the handshake."""
         cdef const uint8_t *data
         cdef unsigned int length = 0
 
@@ -884,7 +772,6 @@ cdef class BaseConnection:
 
     @property
     def peer_certificate(self):
-        """DER certificate the peer presented, or ``None``."""
         cdef ng.X509 *certificate
         cdef uint8_t *encoded = NULL
         cdef int length
@@ -905,7 +792,6 @@ cdef class BaseConnection:
 
     @property
     def peer_transport_parameters(self):
-        """``TransportParameters`` the peer announced; ``None`` until they arrive."""
         cdef const ng.ngtcp2_transport_params *params
 
         if self._conn == NULL:
@@ -943,14 +829,12 @@ cdef class BaseConnection:
 
     @property
     def pto(self):
-        """Current probe timeout in seconds."""
         if self._conn == NULL:
             return 0.0
         return _seconds(ng.ngtcp2_conn_get_pto2(self._conn))
 
     @property
     def stats(self):
-        """Round-trip, congestion and traffic statistics."""
         cdef ng.ngtcp2_conn_info info
 
         if self._conn == NULL:
