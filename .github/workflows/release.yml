@@ -122,11 +122,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: 0
           persist-credentials: false
       # The notes are the version's CHANGELOG section, unwrapped, since
-      # release notes keep line breaks; generated notes would list every PR,
-      # dependency bumps included.
+      # release notes keep line breaks; GitHub appends the generated list of
+      # pull requests and their authors.
       - name: Write the notes from the changelog
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -156,16 +155,11 @@ jobs:
                   lines.append(line)
           print("\n".join(lines))
           EOF
-          if previous="$(git describe --tags --abbrev=0 "$RELEASE_TAG^" 2>/dev/null)"; then
-            link="compare/$previous...$RELEASE_TAG"
-          else
-            link="commits/$RELEASE_TAG"
-          fi
-          printf '\n**Full Changelog**: %s/%s/%s\n' \
-            "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$link" >> notes.md
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file notes.md
+        run: |
+          gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" \
+            --notes-file notes.md --generate-notes

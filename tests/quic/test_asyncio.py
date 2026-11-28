@@ -130,8 +130,9 @@ async def _handshake(host, server_tls, client_tls, h3):
         for side in (client, server):
             if side.timer is not None:
                 side.timer.cancel()
-        client_transport.close()
-        server_transport.close()
+        # abort(), as close() makes the proactor wait for a send in flight.
+        client_transport.abort()
+        server_transport.abort()
         # The proactor closes a transport on a later iteration.
         await asyncio.wait([client.closed, server.closed], timeout=5)
     return client, server

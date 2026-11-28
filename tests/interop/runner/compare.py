@@ -1,6 +1,7 @@
 """Compare QUIC interop runner results with a baseline.
 
     compare.py RESULT... [--previous SUMMARY] [--save SUMMARY] [--report]
+    compare.py RESULT... --unpassed
 
 RESULT files are the runner's --json output; a test passes if any run of it
 passed, so a retry adds a file. Runs that name ngquic-base, the pull
@@ -11,6 +12,8 @@ the simulator's, never count.
 
 Prints the regressed tests' names, comma-separated, for run.py --test.
 --report also writes a table to the job summary and fails on a regression.
+--unpassed prints instead the tests that did not pass, the only ones that
+can have regressed, so that the base runs just those.
 """
 
 import argparse
@@ -93,9 +96,16 @@ def main() -> int:
     parser.add_argument("--previous", type=Path)
     parser.add_argument("--save", type=Path)
     parser.add_argument("--report", action="store_true")
+    parser.add_argument("--unpassed", action="store_true")
     args = parser.parse_args()
 
     current, baseline = split(merge(args.results))
+    if args.unpassed:
+        unpassed = {
+            test for (*_, test), result in current.items() if result != "succeeded"
+        }
+        print(",".join(sorted(unpassed)))
+        return 0
     against = "the base branch" if baseline else ""
     if args.previous:
         baseline = {

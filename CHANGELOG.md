@@ -4,6 +4,11 @@ User-visible changes to ngquic are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- The Windows wheels typed `ngquic.udp` as available, though it is built only
+  on Linux and macOS: its stub now declares nothing on Windows.
+
 ## [0.2.0] - 2026-11-28
 
 Built on ngtcp2 1.26.0, nghttp3 1.19.0 and AWS-LC 5.15.0, as 0.1.0.
